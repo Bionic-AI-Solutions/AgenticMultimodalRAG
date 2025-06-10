@@ -1,0 +1,36 @@
+[project]
+name = "rag"
+version = "0.1.0"
+description = ""
+authors = [
+    {name = "Salil Kadam",email = "Salil.Kadam@Gmail.com"}
+]
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "pymilvus>=2.4.4,<3.0.0",
+    "uvicorn (==0.23.1)",
+    "fastapi>=0.115.12,<0.116.0",
+    "python-dotenv",
+    "minio>=7.1.16,<8.0.0",
+    "asyncpg>=0.29.0,<1.0.0",
+    "neo4j>=5.19.0,<6.0.0",
+    "python-multipart (>=0.0.20,<0.0.21)",
+    "colpali-engine @ git+https://github.com/illuin-tech/colpali.git",
+    "jina (>=3.34.0,<4.0.0)",
+    "sentence-transformers (>=4.1.0,<5.0.0)",
+    "pymupdf (>=1.26.0,<2.0.0)",
+    "llvmlite (>=0.44.0,<0.45.0)",
+    "numba (>=0.61.2,<0.62.0)",
+    "openai-whisper (>=20240930,<20240931)",
+    "pillow (>=11.2.1,<12.0.0)"
+]
+
+[tool.poetry]
+packages = [
+    { include = "app" }
+]
+
+[build-system]
+requires = ["poetry-core>=2.0.0,<3.0.0"]
+build-backend = "poetry.core.masonry.api"

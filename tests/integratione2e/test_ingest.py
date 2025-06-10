@@ -1,0 +1,38 @@
+import os
+import pytest
+from fastapi.testclient import TestClient
+from app.main import app
+
+client = TestClient(app)
+
+SAMPLES = [
+    ('sample.txt', 'text/plain'),
+    ('sample.pdf', 'application/pdf'),
+    ('sample.jpg', 'image/jpeg'),
+    ('sample.mp3', 'audio/mpeg'),
+    ('sample.csv', 'text/csv'),
+    ('sample.docx', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'),
+    ('sample.mp4', 'video/mp4'),
+]
+
+@pytest.mark.parametrize('filename,expected_mime', SAMPLES)
+def test_ingest_sample_file(filename, expected_mime):
+    path = os.path.join('samples', filename)
+    if not os.path.exists(path):
+        pytest.skip(f"Sample file {filename} not found")
+    with open(path, 'rb') as f:
+        response = client.post(
+            '/docs/ingest',
+            files={'file': (filename, f, expected_mime)},
+            data={'app_id': 'testapp', 'user_id': 'testuser'}
+        )
+    assert response.status_code in (200, 422, 415, 413)  # Acceptable: success or validation error
+    data = response.json()
+    assert 'status' in data
+
+def test_health():
+    response = client.get('/health')
+    assert response.status_code == 200
+    data = response.json()
+    assert 'status' in data
+    assert 'services' in data 
