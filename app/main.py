@@ -8,7 +8,8 @@ from typing import Dict, Optional, Any, List, Union
 from pydantic import BaseModel
 import logging
 import os
-from pymilvus import connections, exceptions as milvus_exceptions, Collection, CollectionSchema, FieldSchema, DataType, list_collections
+from pymilvus import connections, exceptions as milvus_exceptions, Collection, CollectionSchema, FieldSchema, DataType, list_collections, utility
+from pymilvus.exceptions import ConnectionNotExistException
 import asyncio
 from minio import Minio
 import asyncpg
@@ -32,6 +33,7 @@ import torch
 import huggingface_hub
 from app.edge_graph_config import EdgeGraphConfigLoader
 import numpy as np
+from functools import lru_cache
 
 # Configure logging
 logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO"))
@@ -40,8 +42,150 @@ logger = logging.getLogger(__name__)
 # Set HuggingFace cache at the very top
 print(f"[RAG Startup] HF_HOME={os.getenv('HF_HOME')}")
 print(f"[RAG Startup] TRANSFORMERS_CACHE={os.getenv('TRANSFORMERS_CACHE')}")
-os.environ["HF_HOME"] = os.getenv("HF_HOME", "/Volumes/ssd/models")
-os.environ["TRANSFORMERS_CACHE"] = os.getenv("HF_HOME", "/Volumes/ssd/models")
+os.environ["HF_HOME"] = os.getenv("HF_HOME", "/home/user/RAG/models")
+os.environ["TRANSFORMERS_CACHE"] = os.getenv("HF_HOME", "/home/user/RAG/models")
+
+# Enable GPU acceleration
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+logger.info(f"Using device: {device}")
+
+# Global model instances
+jina_embedder = None
+sbert_embedder = None
+nomic_model = None
+nomic_processor = None
+whisper_model = None
+
+def clear_gpu_memory():
+    """Clear GPU memory cache."""
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
+        torch.cuda.synchronize()
+
+def get_device():
+    """Get the best available device with fallback to CPU if GPU is out of memory."""
+    if torch.cuda.is_available():
+        try:
+            # Try to allocate a small tensor to check if GPU has memory
+            torch.cuda.empty_cache()
+            test_tensor = torch.zeros(1, device='cuda')
+            del test_tensor
+            return 'cuda'
+        except RuntimeError:
+            logger.warning("GPU memory full, falling back to CPU")
+            return 'cpu'
+    return 'cpu'
+
+@lru_cache(maxsize=1)
+def get_text_embedder():
+    """Get or create the text embedder with proper device placement."""
+    device = get_device()
+    model = SentenceTransformer('jinaai/jina-embedding-v2-base-en', device=device)
+    return model
+
+@lru_cache(maxsize=1)
+def get_nomic_model():
+    """Get or create the Nomic model with proper device placement."""
+    device = get_device()
+    model = ColQwen2_5.from_pretrained("nomic-ai/nomic-embed-text-v1.5", trust_remote_code=True)
+    model = model.to(device)
+    processor = ColQwen2_5_Processor.from_pretrained("nomic-ai/nomic-embed-text-v1.5", trust_remote_code=True)
+    return model, processor
+
+@lru_cache(maxsize=1)
+def get_whisper_model():
+    """Get or create the Whisper model with proper device placement."""
+    device = get_device()
+    model = whisper.load_model("base", download_root=os.getenv("HF_HOME", "/home/user/RAG/models"))
+    if torch.cuda.is_available():
+        model = model.cuda()
+    return model
+
+def embed_text_jina(chunks: list[str]) -> Optional[List[List[float]]]:
+    """Embed text using Jina model with GPU memory management and fallback."""
+    try:
+        clear_gpu_memory()
+        model = get_text_embedder()
+        embeddings = model.encode(chunks, convert_to_tensor=True)
+        embeddings = embeddings.cpu().numpy().tolist()
+        return embeddings
+    except RuntimeError as e:
+        if "CUDA out of memory" in str(e):
+            logger.warning("GPU OOM during Jina embedding, falling back to CPU")
+            clear_gpu_memory()
+            model = get_text_embedder()  # This will now return CPU model
+            embeddings = model.encode(chunks, convert_to_tensor=False)
+            return embeddings.tolist()
+        raise
+
+def embed_text_nomic(chunks: list[str]) -> Optional[List[List[float]]]:
+    """Embed text using Nomic model with GPU memory management and fallback."""
+    try:
+        clear_gpu_memory()
+        model, processor = get_nomic_model()
+        inputs = processor(chunks, padding=True, truncation=True, return_tensors="pt")
+        inputs = {k: v.to(model.device) for k, v in inputs.items()}
+        with torch.no_grad():
+            outputs = model(**inputs)
+        embeddings = outputs.last_hidden_state.mean(dim=1)
+        embeddings = embeddings.cpu().numpy().tolist()
+        return embeddings
+    except RuntimeError as e:
+        if "CUDA out of memory" in str(e):
+            logger.warning("GPU OOM during Nomic embedding, falling back to CPU")
+            clear_gpu_memory()
+            model, processor = get_nomic_model()  # This will now return CPU model
+            inputs = processor(chunks, padding=True, truncation=True, return_tensors="pt")
+            with torch.no_grad():
+                outputs = model(**inputs)
+            embeddings = outputs.last_hidden_state.mean(dim=1)
+            return embeddings.numpy().tolist()
+        raise
+
+def embed_image_nomic(image_path: str) -> Optional[List[float]]:
+    """Embed image using Nomic model with GPU memory management and fallback."""
+    try:
+        clear_gpu_memory()
+        model, processor = get_nomic_model()
+        image = Image.open(image_path)
+        inputs = processor(images=image, return_tensors="pt")
+        inputs = {k: v.to(model.device) for k, v in inputs.items()}
+        with torch.no_grad():
+            outputs = model(**inputs)
+        embedding = outputs.last_hidden_state.mean(dim=1)
+        embedding = embedding.cpu().numpy().tolist()[0]
+        return embedding
+    except RuntimeError as e:
+        if "CUDA out of memory" in str(e):
+            logger.warning("GPU OOM during Nomic image embedding, falling back to CPU")
+            clear_gpu_memory()
+            model, processor = get_nomic_model()  # This will now return CPU model
+            image = Image.open(image_path)
+            inputs = processor(images=image, return_tensors="pt")
+            with torch.no_grad():
+                outputs = model(**inputs)
+            embedding = outputs.last_hidden_state.mean(dim=1)
+            return embedding.numpy().tolist()[0]
+        raise
+
+def embed_audio_whisper(audio_path: str) -> Optional[List[float]]:
+    """Embed audio using Whisper model with GPU memory management and fallback."""
+    try:
+        clear_gpu_memory()
+        model = get_whisper_model()
+        result = model.transcribe(audio_path)
+        text = result["text"]
+        # Use text embedding as audio embedding
+        return embed_text_jina([text])[0]
+    except RuntimeError as e:
+        if "CUDA out of memory" in str(e):
+            logger.warning("GPU OOM during Whisper audio embedding, falling back to CPU")
+            clear_gpu_memory()
+            model = get_whisper_model()  # This will now return CPU model
+            result = model.transcribe(audio_path)
+            text = result["text"]
+            return embed_text_jina([text])[0]
+        raise
 
 # Move the lifespan definition here (before app = FastAPI(...))
 @asynccontextmanager
@@ -49,9 +193,9 @@ async def lifespan(app: FastAPI):
     # Startup
     logger.info("Starting RAG System...")
     # ... (existing lifespan code) ...
-    # Set HuggingFace cache to /Volumes/ssd/models
-    os.environ["HF_HOME"] = "/Volumes/ssd/models"
-    os.environ["TRANSFORMERS_CACHE"] = "/Volumes/ssd/models"
+    # Set HuggingFace cache to /home/user/RAG/models
+    os.environ["HF_HOME"] = "/home/user/RAG/models"
+    os.environ["TRANSFORMERS_CACHE"] = "/home/user/RAG/models"
     # Global edge-graph config loader (Phase 1)
     edge_graph_config_loader = EdgeGraphConfigLoader()
     yield
@@ -129,41 +273,78 @@ MILVUS_PORT = os.getenv("MILVUS_PORT", "19530")
 
 # Utility to ensure Milvus connection
 def ensure_milvus_connection():
+    """Ensure Milvus connection is established."""
     try:
-        if not connections.has_connection("default"):
-            connections.connect(alias="default", host=MILVUS_HOST, port=MILVUS_PORT)
-    except Exception as e:
-        logger.error(f"Failed to connect to Milvus: {e}")
-        raise
+        connections.get_connection()
+    except ConnectionNotExistException:
+        logger.info("Establishing new Milvus connection...")
+        connections.connect(
+            alias="default",
+            host=os.getenv("MILVUS_HOST", "localhost"),
+            port=int(os.getenv("MILVUS_PORT", "19530"))
+        )
 
-# Utility to ensure collection exists (create if missing)
-def ensure_collection(collection_name: str):
-    ensure_milvus_connection()
-    try:
-        if collection_name not in list_collections():
-            # Define schema (should match ingestion logic)
-            fields = [
-                FieldSchema(name="doc_id", dtype=DataType.VARCHAR, max_length=128, is_primary=True, auto_id=False),
-                FieldSchema(name="embedding", dtype=DataType.FLOAT_VECTOR, dim=1024),
-                FieldSchema(name="content", dtype=DataType.VARCHAR, max_length=65535),
-                FieldSchema(name="metadata", dtype=DataType.JSON)
-            ]
-            schema = CollectionSchema(fields, description="RAG chunks")
-            collection = Collection(collection_name, schema)
-            logger.info(f"Created Milvus collection: {collection_name}")
-            # Create index on embedding
-            index_params = {"index_type": "IVF_FLAT", "metric_type": "IP", "params": {"nlist": 128}}
-            collection.create_index(field_name="embedding", index_params=index_params)
-            logger.info(f"Created index on 'embedding' for collection: {collection_name}")
+def normalize_embeddings(embeddings, num_chunks):
+    # Recursively flatten to a list of floats
+    def flatten_recursive(e):
+        if isinstance(e, (list, tuple)):
+            result = []
+            for item in e:
+                result.extend(flatten_recursive(item))
+            return result
+        elif isinstance(e, float):
+            return [e]
+        elif isinstance(e, int):
+            return [float(e)]
         else:
-            collection = Collection(collection_name)
-            # Check if index exists, create if missing
-            if not collection.has_index():
-                index_params = {"index_type": "IVF_FLAT", "metric_type": "IP", "params": {"nlist": 128}}
-                collection.create_index(field_name="embedding", index_params=index_params)
-                logger.info(f"Created index on 'embedding' for collection: {collection_name}")
+            return []
+    
+    # If embeddings is a list, flatten each
+    if isinstance(embeddings, list) and len(embeddings) > 0:
+        flattened = [flatten_recursive(e) for e in embeddings]
+        # Ensure all embeddings are 1024-dimensional
+        normalized = []
+        for emb in flattened:
+            if len(emb) < 1024:
+                normalized.append(emb + [0.0] * (1024 - len(emb)))
+            elif len(emb) > 1024:
+                normalized.append(emb[:1024])
+            else:
+                normalized.append(emb)
+        return normalized
+    return []
+
+def ensure_collection(collection_name: str):
+    """Ensure Milvus collection exists with proper schema."""
+    ensure_milvus_connection()
+    
+    try:
+        if collection_name in utility.list_collections():
+            return Collection(collection_name)
+            
+        # Create collection with schema
+        fields = [
+            {"name": "doc_id", "dtype": "VARCHAR", "is_primary": True, "max_length": 100},
+            {"name": "content", "dtype": "VARCHAR", "max_length": 65535},
+            {"name": "embedding", "dtype": "FLOAT_VECTOR", "dim": 1024},  # Fixed dimension for all embeddings
+            {"name": "metadata", "dtype": "JSON"}
+        ]
+        
+        schema = {"fields": fields, "description": "Document embeddings collection"}
+        collection = Collection(name=collection_name, schema=schema)
+        
+        # Create index
+        index_params = {
+            "metric_type": "L2",
+            "index_type": "IVF_FLAT",
+            "params": {"nlist": 1024}
+        }
+        collection.create_index(field_name="embedding", index_params=index_params)
+        collection.load()
+        
+        return collection
     except Exception as e:
-        logger.error(f"Failed to ensure Milvus collection '{collection_name}': {e}")
+        logger.error(f"Error ensuring Milvus collection: {e}")
         raise
 
 async def check_milvus():
@@ -213,13 +394,19 @@ async def check_postgres():
     except Exception as e:
         return f"unreachable: {str(e)}"
 
+# Neo4j connection utility
+NEO4J_AUTH = os.getenv("NEO4J_AUTH", "neo4j/neo4jpassword")
+if "/" in NEO4J_AUTH:
+    NEO4J_USER, NEO4J_PASSWORD = NEO4J_AUTH.split("/", 1)
+else:
+    NEO4J_USER = NEO4J_AUTH
+    NEO4J_PASSWORD = ""
+
 # Neo4j health check
 async def check_neo4j():
     try:
         neo4j_uri = os.getenv("NEO4J_URI", "bolt://localhost:7687")
-        neo4j_user = os.getenv("NEO4J_USER", "neo4j")
-        neo4j_password = os.getenv("NEO4J_PASSWORD", "test")
-        driver = GraphDatabase.driver(neo4j_uri, auth=(neo4j_user, neo4j_password))
+        driver = GraphDatabase.driver(neo4j_uri, auth=(NEO4J_USER, NEO4J_PASSWORD))
         with driver.session() as session:
             session.run("RETURN 1")
         driver.close()
@@ -267,9 +454,7 @@ async def check_postgres_detailed():
 async def check_neo4j_detailed():
     try:
         neo4j_uri = os.getenv("NEO4J_URI", "bolt://localhost:7687")
-        neo4j_user = os.getenv("NEO4J_USER", "neo4j")
-        neo4j_password = os.getenv("NEO4J_PASSWORD", "test")
-        with GraphDatabase.driver(neo4j_uri, auth=(neo4j_user, neo4j_password)) as driver:
+        with GraphDatabase.driver(neo4j_uri, auth=(NEO4J_USER, NEO4J_PASSWORD)) as driver:
             with driver.session() as session:
                 session.run("RETURN 1")
         return {"status": "ok"}
@@ -359,42 +544,6 @@ def chunk_text_recursive(text: str, chunk_size: int = 512, overlap: int = 102, s
         i += chunk_size - overlap
     return chunks
 
-# Text embedding with Jina Embeddings v2 via SentenceTransformers
-jina_embedder = SentenceTransformer("jinaai/jina-embeddings-v2-base-en", trust_remote_code=True, cache_folder=os.getenv("HF_HOME", "/Volumes/ssd/models"))
-
-# Fallback: Sentence Transformers (BGE-M3, etc.)
-sbert_embedder = SentenceTransformer("BAAI/bge-m3", cache_folder=os.getenv("HF_HOME", "/Volumes/ssd/models"))
-
-def embed_text_jina(chunks: list[str]) -> list:
-    try:
-        return jina_embedder.encode(chunks, show_progress_bar=False)
-    except Exception as e:
-        logger.warning(f"Jina embedding failed: {e}, falling back to SBERT.")
-        return sbert_embedder.encode(chunks, show_progress_bar=False)
-
-# Nomic imports
-from colpali_engine.models import ColQwen2_5, ColQwen2_5_Processor
-
-# Nomic model/processor (load once)
-nomic_model = None
-nomic_processor = None
-
-def get_nomic_model():
-    global nomic_model, nomic_processor
-    model_path = os.path.join(os.getenv("HF_HOME", "/Volumes/ssd/models"), "nomic-ai/colnomic-embed-multimodal-7b")
-    processor_path = model_path
-    if nomic_model is None or nomic_processor is None:
-        logger.info(f"Checking for Nomic model at {model_path}")
-        if not os.path.exists(model_path) or not os.path.exists(os.path.join(model_path, "config.json")):
-            logger.info("Nomic model not found locally. Downloading from HuggingFace...")
-            huggingface_hub.snapshot_download(repo_id="nomic-ai/colnomic-embed-multimodal-7b", local_dir=model_path, local_dir_use_symlinks=False)
-        logger.info("Loading Nomic model...")
-        nomic_model = ColQwen2_5.from_pretrained(model_path, cache_dir=os.getenv("HF_HOME", "/Volumes/ssd/models"))
-        logger.info("Loading Nomic processor with use_fast=False...")
-        nomic_processor = ColQwen2_5_Processor.from_pretrained(processor_path, use_fast=False, cache_dir=os.getenv("HF_HOME", "/Volumes/ssd/models"))
-        logger.info("Loaded slow processor.")
-    return nomic_model, nomic_processor
-
 # Image/PDF embedding with Nomic
 def embed_image_nomic(image_bytes: bytes) -> list:
     try:
@@ -446,13 +595,12 @@ def embed_pdf_nomic(pdf_bytes: bytes) -> list:
         return [0.0]*1024
 
 # Audio embedding with Whisper + text embedding
-whisper_model = whisper.load_model("base", download_root=os.getenv("HF_HOME", "/Volumes/ssd/models"))
 def embed_audio_whisper(audio_bytes: bytes) -> list:
     try:
         # Save to temp file for whisper
         with open("/tmp/audio.wav", "wb") as f:
             f.write(audio_bytes)
-        result = whisper_model.transcribe("/tmp/audio.wav")
+        result = get_whisper_model().transcribe("/tmp/audio.wav")
         transcript = result.get("text", "")
         logger.info(f"Whisper transcript: {transcript[:100]}")
         if transcript:
@@ -505,30 +653,6 @@ async def health_details():
         "timestamp": datetime.utcnow().isoformat()
     }
 
-# Utility to normalize embeddings for Milvus (always returns list of flat float lists)
-def normalize_embeddings(embeddings, num_chunks):
-    # Recursively flatten to a list of floats
-    def flatten_recursive(e):
-        if isinstance(e, (list, tuple)):
-            result = []
-            for item in e:
-                result.extend(flatten_recursive(item))
-            return result
-        elif isinstance(e, float):
-            return [e]
-        elif isinstance(e, int):
-            return [float(e)]
-        else:
-            return []
-    # If embeddings is a list, flatten each
-    if isinstance(embeddings, list) and len(embeddings) > 0:
-        return [flatten_recursive(e) for e in embeddings]
-    # If embeddings is a single embedding, repeat for each chunk
-    if isinstance(embeddings, (list, tuple)) and all(isinstance(x, (float, int)) for x in embeddings):
-        return [list(map(float, embeddings))] * num_chunks
-    # Fallback: return zero vectors
-    return [[0.0]*1024 for _ in range(num_chunks)]
-
 @app.post("/docs/ingest", response_model=IngestResponse)
 async def ingest_document(
     file: UploadFile = File(...),
@@ -536,116 +660,123 @@ async def ingest_document(
     user_id: Optional[str] = Form(None),
     metadata: Optional[str] = Form(None)
 ):
-    # Step 1: File Upload & Validation
+    """Ingest a document and store its embeddings."""
     try:
-        # Validate file size (example: max 100MB)
-        MAX_SIZE = 100 * 1024 * 1024
-        contents = await file.read()
-        if len(contents) > MAX_SIZE:
-            return JSONResponse(status_code=413, content={"status": "error", "message": "File too large"})
-        if not file.filename:
-            return JSONResponse(status_code=422, content={"status": "error", "message": "Filename required"})
-        # Generate a unique doc_id (could use UUID, here use timestamp+filename)
-        import uuid
-        doc_id = f"{app_id}_{user_id or 'anon'}_{uuid.uuid4().hex}"
-        # Store file in Minio
-        minio_host = os.getenv("MINIO_HOST", "localhost:9000")
-        minio_access_key = os.getenv("MINIO_ACCESS_KEY", "minioadmin")
-        minio_secret_key = os.getenv("MINIO_SECRET_KEY", "minioadmin")
-        minio_secure = os.getenv("MINIO_SECURE", "false").lower() == "true"
-        bucket_name = os.getenv("MINIO_BUCKET", "rag-docs")
-        client = Minio(minio_host, access_key=minio_access_key, secret_key=minio_secret_key, secure=minio_secure)
-        # Ensure bucket exists
-        found = client.bucket_exists(bucket_name)
-        if not found:
-            client.make_bucket(bucket_name)
-        # Store file
-        minio_path = f"{app_id}/{user_id or 'anon'}/{doc_id}/{file.filename}"
-        import io
-        client.put_object(
-            bucket_name,
-            minio_path,
-            io.BytesIO(contents),
-            length=len(contents),
-            content_type=file.content_type or "application/octet-stream"
-        )
-        logger.info(f"File uploaded to Minio: {bucket_name}/{minio_path}")
-        # Step 2: Type Detection
-        detected_type = detect_file_type(file.filename, contents)
-        logger.info(f"Detected file type: {detected_type}")
-        # Step 3: Extraction
-        extracted_content = extract_content_by_type(detected_type, contents)
-        logger.info(f"Extracted content (truncated): {extracted_content[:200]}")
-        # Step 4: Chunking
-        if isinstance(extracted_content, str):
-            chunks = chunk_text_recursive(extracted_content)
-            logger.info(f"Chunked into {len(chunks)} chunks. First chunk size: {len(chunks[0].split()) if chunks else 0} words.")
-        else:
-            chunks = []
-            logger.warning("Extracted content is not a string; skipping chunking.")
-        # Step 5: Embedding (route by MIME)
-        if detected_type.startswith("text"):
-            logger.info("Routing to Jina Embeddings v3 for text embedding.")
-            embeddings = embed_text_jina(chunks)
-        elif detected_type.startswith("image"):
-            logger.info("Routing to Nomic Embed Multimodal 7B for image embedding.")
-            embedding = embed_image_nomic(contents)
-            if isinstance(embedding, list) and len(embedding) > 0 and isinstance(embedding[0], list):
-                embedding = embedding[0]
-            embeddings = [embedding] * len(chunks)
-        elif "pdf" in detected_type:
-            logger.info("Routing to Nomic Embed Multimodal 7B for PDF embedding.")
-            embedding = embed_pdf_nomic(contents)
-            if isinstance(embedding, list) and len(embedding) > 0 and isinstance(embedding[0], list):
-                embedding = embedding[0]
-            embeddings = [embedding] * len(chunks)
-        elif detected_type.startswith("audio"):
-            logger.info("Routing to Whisper for audio embedding.")
-            embeddings = [embed_audio_whisper(contents)] * len(chunks)
-        elif detected_type in ("text/csv", "application/vnd.ms-excel", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"):
-            logger.info("Detected CSV/Excel. Extracting text and embedding as text.")
-            # For CSV/Excel, treat as text for embedding
-            embeddings = embed_text_jina(chunks)
-        elif detected_type in ("application/msword", "application/vnd.openxmlformats-officedocument.wordprocessingml.document"):
-            logger.info("Detected Word doc. Extracting text and embedding as text.")
-            embeddings = embed_text_jina(chunks)
-        else:
-            logger.warning(f"Unsupported MIME type for embedding: {detected_type}")
-            embeddings = []
-        # Normalize embeddings for Milvus
-        embeddings = normalize_embeddings(embeddings, len(chunks))
-        # Pad all embeddings to 1024-dim
-        for i in range(len(embeddings)):
-            if len(embeddings[i]) < 1024:
-                embeddings[i] = embeddings[i] + [0.0] * (1024 - len(embeddings[i]))
-            elif len(embeddings[i]) > 1024:
-                embeddings[i] = embeddings[i][:1024]
-        if embeddings:
-            logger.debug(f"First embedding: {embeddings[0][:10]} (type: {type(embeddings[0])}, length: {len(embeddings[0]) if isinstance(embeddings[0], (list, tuple)) else 'N/A'})")
-        logger.info(f"Generated {len(embeddings)} embeddings.")
-        # Store embeddings in Milvus
-        if len(embeddings) > 0 and len(chunks) == len(embeddings):
-            from pymilvus import Collection
-            collection_name = f"{app_id}_{user_id or 'anon'}"
-            ensure_collection(collection_name)
-            collection = Collection(collection_name)
-            collection.load()
-            # Prepare data for Milvus insert (row-oriented, list of dicts)
-            insert_data = [
-                {
-                    "doc_id": str(f"{doc_id}_chunk{i}"),
-                    "embedding": list(map(float, embeddings[i])),
-                    "content": str(chunks[i]),
-                    "metadata": {"source_doc_id": doc_id, "chunk_index": i, "minio_path": minio_path}
-                }
-                for i in range(len(chunks))
-            ]
-            # Insert into Milvus
-            mr = collection.insert(insert_data)
-            logger.info(f"Inserted {len(chunks)} docs into Milvus collection {collection_name}. Insert result: {mr}")
-        else:
-            logger.warning("No embeddings or chunk/embedding count mismatch; skipping Milvus insert.")
-        return IngestResponse(doc_id=doc_id, status="embedded", message=f"File uploaded. Type: {detected_type}. Embedding complete. {len(embeddings)} chunks.")
+        # Ensure Milvus connection before starting
+        ensure_milvus_connection()
+        
+        # Step 1: File Upload & Validation
+        try:
+            # Validate file size (example: max 100MB)
+            MAX_SIZE = 100 * 1024 * 1024
+            contents = await file.read()
+            if len(contents) > MAX_SIZE:
+                return JSONResponse(status_code=413, content={"status": "error", "message": "File too large"})
+            if not file.filename:
+                return JSONResponse(status_code=422, content={"status": "error", "message": "Filename required"})
+            # Generate a unique doc_id (could use UUID, here use timestamp+filename)
+            import uuid
+            doc_id = f"{app_id}_{user_id or 'anon'}_{uuid.uuid4().hex}"
+            # Store file in Minio
+            minio_host = os.getenv("MINIO_HOST", "localhost:9000")
+            minio_access_key = os.getenv("MINIO_ACCESS_KEY", "minioadmin")
+            minio_secret_key = os.getenv("MINIO_SECRET_KEY", "minioadmin")
+            minio_secure = os.getenv("MINIO_SECURE", "false").lower() == "true"
+            bucket_name = os.getenv("MINIO_BUCKET", "rag-docs")
+            client = Minio(minio_host, access_key=minio_access_key, secret_key=minio_secret_key, secure=minio_secure)
+            # Ensure bucket exists
+            found = client.bucket_exists(bucket_name)
+            if not found:
+                client.make_bucket(bucket_name)
+            # Store file
+            minio_path = f"{app_id}/{user_id or 'anon'}/{doc_id}/{file.filename}"
+            import io
+            client.put_object(
+                bucket_name,
+                minio_path,
+                io.BytesIO(contents),
+                length=len(contents),
+                content_type=file.content_type or "application/octet-stream"
+            )
+            logger.info(f"File uploaded to Minio: {bucket_name}/{minio_path}")
+            # Step 2: Type Detection
+            detected_type = detect_file_type(file.filename, contents)
+            logger.info(f"Detected file type: {detected_type}")
+            # Step 3: Extraction
+            extracted_content = extract_content_by_type(detected_type, contents)
+            logger.info(f"Extracted content (truncated): {extracted_content[:200]}")
+            # Step 4: Chunking
+            if isinstance(extracted_content, str):
+                chunks = chunk_text_recursive(extracted_content)
+                logger.info(f"Chunked into {len(chunks)} chunks. First chunk size: {len(chunks[0].split()) if chunks else 0} words.")
+            else:
+                chunks = []
+                logger.warning("Extracted content is not a string; skipping chunking.")
+            # Step 5: Embedding (route by MIME)
+            if detected_type.startswith("text"):
+                logger.info("Routing to Jina Embeddings v3 for text embedding.")
+                embeddings = embed_text_jina(chunks)
+            elif detected_type.startswith("image"):
+                logger.info("Routing to Nomic Embed Multimodal 7B for image embedding.")
+                embedding = embed_image_nomic(contents)
+                if isinstance(embedding, list) and len(embedding) > 0 and isinstance(embedding[0], list):
+                    embedding = embedding[0]
+                embeddings = [embedding] * len(chunks)
+            elif "pdf" in detected_type:
+                logger.info("Routing to Nomic Embed Multimodal 7B for PDF embedding.")
+                embedding = embed_pdf_nomic(contents)
+                if isinstance(embedding, list) and len(embedding) > 0 and isinstance(embedding[0], list):
+                    embedding = embedding[0]
+                embeddings = [embedding] * len(chunks)
+            elif detected_type.startswith("audio"):
+                logger.info("Routing to Whisper for audio embedding.")
+                embeddings = [embed_audio_whisper(contents)] * len(chunks)
+            elif detected_type in ("text/csv", "application/vnd.ms-excel", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"):
+                logger.info("Detected CSV/Excel. Extracting text and embedding as text.")
+                # For CSV/Excel, treat as text for embedding
+                embeddings = embed_text_jina(chunks)
+            elif detected_type in ("application/msword", "application/vnd.openxmlformats-officedocument.wordprocessingml.document"):
+                logger.info("Detected Word doc. Extracting text and embedding as text.")
+                embeddings = embed_text_jina(chunks)
+            else:
+                logger.warning(f"Unsupported MIME type for embedding: {detected_type}")
+                embeddings = []
+            # Normalize embeddings for Milvus
+            embeddings = normalize_embeddings(embeddings, len(chunks))
+            # Pad all embeddings to 1024-dim
+            for i in range(len(embeddings)):
+                if len(embeddings[i]) < 1024:
+                    embeddings[i] = embeddings[i] + [0.0] * (1024 - len(embeddings[i]))
+                elif len(embeddings[i]) > 1024:
+                    embeddings[i] = embeddings[i][:1024]
+            if embeddings:
+                logger.debug(f"First embedding: {embeddings[0][:10]} (type: {type(embeddings[0])}, length: {len(embeddings[0]) if isinstance(embeddings[0], (list, tuple)) else 'N/A'})")
+            logger.info(f"Generated {len(embeddings)} embeddings.")
+            # Store embeddings in Milvus
+            if len(embeddings) > 0 and len(chunks) == len(embeddings):
+                collection_name = f"{app_id}_{user_id or 'anon'}"
+                collection = Collection(collection_name)
+                collection.load()
+                # Prepare data for Milvus insert (row-oriented, list of dicts)
+                insert_data = [
+                    {
+                        "doc_id": str(f"{doc_id}_chunk{i}"),
+                        "embedding": list(map(float, embeddings[i])),
+                        "content": str(chunks[i]),
+                        "metadata": {"source_doc_id": doc_id, "chunk_index": i, "minio_path": minio_path}
+                    }
+                    for i in range(len(chunks))
+                ]
+                # Insert into Milvus
+                mr = collection.insert(insert_data)
+                logger.info(f"Inserted {len(chunks)} docs into Milvus collection {collection_name}. Insert result: {mr}")
+            else:
+                logger.warning("No embeddings or chunk/embedding count mismatch; skipping Milvus insert.")
+            return IngestResponse(doc_id=doc_id, status="embedded", message=f"File uploaded. Type: {detected_type}. Embedding complete. {len(embeddings)} chunks.")
+        except Exception as e:
+            tb = traceback.format_exc()
+            logger.error(f"Ingestion failed: {e}\n{tb}")
+            return JSONResponse(status_code=500, content={"status": "error", "message": str(e)})
     except Exception as e:
         tb = traceback.format_exc()
         logger.error(f"Ingestion failed: {e}\n{tb}")
@@ -892,9 +1023,7 @@ async def query_graph(
             driver = None
             try:
                 neo4j_uri = os.getenv("NEO4J_URI", "bolt://localhost:7687")
-                neo4j_user = os.getenv("NEO4J_USER", "neo4j")
-                neo4j_password = os.getenv("NEO4J_PASSWORD", "test")
-                driver = GraphDatabase.driver(neo4j_uri, auth=(neo4j_user, neo4j_password))
+                driver = GraphDatabase.driver(neo4j_uri, auth=(NEO4J_USER, NEO4J_PASSWORD))
                 with driver.session() as session:
                     depth = 1
                     exp_type = "context"
