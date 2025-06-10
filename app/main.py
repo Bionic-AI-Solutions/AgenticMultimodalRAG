@@ -305,8 +305,9 @@ def get_nomic_model():
             huggingface_hub.snapshot_download(repo_id="nomic-ai/colnomic-embed-multimodal-7b", local_dir=model_path, local_dir_use_symlinks=False)
         logger.info("Loading Nomic model...")
         nomic_model = ColQwen2_5.from_pretrained(model_path)
-        logger.info("Loading Nomic processor...")
-        nomic_processor = ColQwen2_5_Processor.from_pretrained(processor_path)
+        logger.info("Loading Nomic processor with use_fast=False...")
+        nomic_processor = ColQwen2_5_Processor.from_pretrained(processor_path, use_fast=False)
+        logger.info("Loaded slow processor.")
     return nomic_model, nomic_processor
 
 # Image/PDF embedding with Nomic

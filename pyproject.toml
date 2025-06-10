@@ -34,3 +34,10 @@ packages = [
 [build-system]
 requires = ["poetry-core>=2.0.0,<3.0.0"]
 build-backend = "poetry.core.masonry.api"
+
+[tool.poetry.dependencies]
+httpx = "^0.28.1"
+torchvision = "^0.18.0"
+
+[tool.poetry.dev-dependencies]
+pytest = "^8.4.0"
