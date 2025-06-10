@@ -23,7 +23,9 @@ dependencies = [
     "llvmlite (>=0.44.0,<0.45.0)",
     "numba (>=0.61.2,<0.62.0)",
     "openai-whisper (>=20240930,<20240931)",
-    "pillow (>=11.2.1,<12.0.0)"
+    "pillow (>=11.2.1,<12.0.0)",
+    "watchdog (>=6.0.0,<7.0.0)",
+    "pyyaml (>=6.0.2,<7.0.0)"
 ]
 
 [tool.poetry]

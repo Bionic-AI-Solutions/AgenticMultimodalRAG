@@ -115,4 +115,77 @@ def test_query_graph_image_semantic():
     for r in data["results"]:
         assert "graph_context" in r
         assert "nodes" in r["graph_context"]
-        assert "edges" in r["graph_context"] 
+        assert "edges" in r["graph_context"]
+
+@pytest.mark.integration
+def test_query_graph_weighted_expansion_explicit():
+    req = {
+        "query": "sample",
+        "app_id": "test",
+        "user_id": "test",
+        "graph_expansion": {
+            "depth": 1,
+            "type": "context",
+            "weights": {"context_of": 2.0, "about_topic": 0.0, "temporal_neighbor": 1.0}
+        }
+    }
+    resp = client.post("/query/graph", json=req)
+    assert resp.status_code == 200
+    data = resp.json()
+    assert "results" in data
+    assert "explain" in data
+    explain = data["explain"]
+    # Only edge types with weight > 0 should be used
+    used = explain["used_edge_types"]
+    assert "context_of" in used and used["context_of"] == 2.0
+    assert "about_topic" in used and used["about_topic"] == 0.0
+    assert "temporal_neighbor" in used and used["temporal_neighbor"] == 1.0
+    # Rerank info present
+    assert "rerank" in explain
+    # Edges in results should only be of allowed types
+    for r in data["results"]:
+        for e in r["graph_context"]["edges"]:
+            assert e["type"] in [k for k, v in used.items() if v > 0]
+
+@pytest.mark.integration
+def test_query_graph_weighted_expansion_config():
+    # This test assumes config/edge_graph.yaml has weights for test app or default
+    req = {
+        "query": "sample",
+        "app_id": "test",
+        "user_id": "test",
+        "graph_expansion": {"depth": 1, "type": "context"}
+    }
+    resp = client.post("/query/graph", json=req)
+    assert resp.status_code == 200
+    data = resp.json()
+    assert "results" in data
+    assert "explain" in data
+    explain = data["explain"]
+    used = explain["used_edge_types"]
+    # Should match config (at least keys/values)
+    assert isinstance(used, dict)
+    assert all(isinstance(v, float) for v in used.values())
+    # Rerank info present
+    assert "rerank" in explain
+    # Edges in results should only be of allowed types
+    for r in data["results"]:
+        for e in r["graph_context"]["edges"]:
+            assert e["type"] in [k for k, v in used.items() if v > 0]
+
+@pytest.mark.integration
+def test_ingest_sample2_pdf():
+    path = os.path.join('samples', 'sample2.pdf')
+    if not os.path.exists(path):
+        pytest.skip("sample2.pdf not found")
+    with open(path, 'rb') as f:
+        response = client.post(
+            '/docs/ingest',
+            files={'file': ('sample2.pdf', f, 'application/pdf')},
+            data={'app_id': 'testapp', 'user_id': 'testuser'}
+        )
+    assert response.status_code == 200
+    data = response.json()
+    assert data.get('status') == 'embedded'
+    assert 'doc_id' in data
+    assert 'embedding complete' in data.get('message', '').lower() 

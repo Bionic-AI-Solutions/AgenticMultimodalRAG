@@ -1,0 +1,11 @@
+default_edge_types:
+  context_of: 1.0
+  about_topic: 0.5
+  temporal_neighbor: 0.2
+app_overrides:
+  resume_app:
+    temporal_neighbor: 1.0
+    context_of: 0.8
+  product_catalog:
+    about_topic: 1.0
+    context_of: 0.5 
