@@ -25,7 +25,8 @@ dependencies = [
     "openai-whisper (>=20240930,<20240931)",
     "pillow (>=11.2.1,<12.0.0)",
     "watchdog (>=6.0.0,<7.0.0)",
-    "pyyaml (>=6.0.2,<7.0.0)"
+    "pyyaml (>=6.0.2,<7.0.0)",
+    "tenacity (>=9.1.2,<10.0.0)"
 ]
 
 [tool.poetry]
