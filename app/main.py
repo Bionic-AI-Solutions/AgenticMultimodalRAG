@@ -8,7 +8,7 @@ from typing import Dict, Optional, Any, List, Union
 from pydantic import BaseModel
 import logging
 import os
-from pymilvus import connections, exceptions as milvus_exceptions
+from pymilvus import connections, exceptions as milvus_exceptions, Collection, CollectionSchema, FieldSchema, DataType, list_collections
 import asyncio
 from minio import Minio
 import asyncpg
@@ -30,12 +30,16 @@ import fitz  # PyMuPDF
 import io
 import torch
 import huggingface_hub
+from app.edge_graph_config import EdgeGraphConfigLoader
+import numpy as np
 
 # Configure logging
 logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO"))
 logger = logging.getLogger(__name__)
 
 # Set HuggingFace cache at the very top
+print(f"[RAG Startup] HF_HOME={os.getenv('HF_HOME')}")
+print(f"[RAG Startup] TRANSFORMERS_CACHE={os.getenv('TRANSFORMERS_CACHE')}")
 os.environ["HF_HOME"] = os.getenv("HF_HOME", "/Volumes/ssd/models")
 os.environ["TRANSFORMERS_CACHE"] = os.getenv("HF_HOME", "/Volumes/ssd/models")
 
@@ -48,6 +52,8 @@ async def lifespan(app: FastAPI):
     # Set HuggingFace cache to /Volumes/ssd/models
     os.environ["HF_HOME"] = "/Volumes/ssd/models"
     os.environ["TRANSFORMERS_CACHE"] = "/Volumes/ssd/models"
+    # Global edge-graph config loader (Phase 1)
+    edge_graph_config_loader = EdgeGraphConfigLoader()
     yield
     # Shutdown
     logger.info("Shutting down RAG System...")
@@ -115,10 +121,50 @@ class GraphQueryResult(BaseModel):
 
 class GraphQueryResponse(BaseModel):
     results: List[GraphQueryResult]
+    explain: Optional[Dict[str, Any]] = None
 
 # Milvus connection utility
 MILVUS_HOST = os.getenv("MILVUS_HOST", "localhost")
 MILVUS_PORT = os.getenv("MILVUS_PORT", "19530")
+
+# Utility to ensure Milvus connection
+def ensure_milvus_connection():
+    try:
+        if not connections.has_connection("default"):
+            connections.connect(alias="default", host=MILVUS_HOST, port=MILVUS_PORT)
+    except Exception as e:
+        logger.error(f"Failed to connect to Milvus: {e}")
+        raise
+
+# Utility to ensure collection exists (create if missing)
+def ensure_collection(collection_name: str):
+    ensure_milvus_connection()
+    try:
+        if collection_name not in list_collections():
+            # Define schema (should match ingestion logic)
+            fields = [
+                FieldSchema(name="doc_id", dtype=DataType.VARCHAR, max_length=128, is_primary=True, auto_id=False),
+                FieldSchema(name="embedding", dtype=DataType.FLOAT_VECTOR, dim=1024),
+                FieldSchema(name="content", dtype=DataType.VARCHAR, max_length=65535),
+                FieldSchema(name="metadata", dtype=DataType.JSON)
+            ]
+            schema = CollectionSchema(fields, description="RAG chunks")
+            collection = Collection(collection_name, schema)
+            logger.info(f"Created Milvus collection: {collection_name}")
+            # Create index on embedding
+            index_params = {"index_type": "IVF_FLAT", "metric_type": "IP", "params": {"nlist": 128}}
+            collection.create_index(field_name="embedding", index_params=index_params)
+            logger.info(f"Created index on 'embedding' for collection: {collection_name}")
+        else:
+            collection = Collection(collection_name)
+            # Check if index exists, create if missing
+            if not collection.has_index():
+                index_params = {"index_type": "IVF_FLAT", "metric_type": "IP", "params": {"nlist": 128}}
+                collection.create_index(field_name="embedding", index_params=index_params)
+                logger.info(f"Created index on 'embedding' for collection: {collection_name}")
+    except Exception as e:
+        logger.error(f"Failed to ensure Milvus collection '{collection_name}': {e}")
+        raise
 
 async def check_milvus():
     try:
@@ -357,10 +403,15 @@ def embed_image_nomic(image_bytes: bytes) -> list:
         batch_images = processor.process_images([image]).to(model.device)
         with torch.no_grad():
             image_embeddings = model(**batch_images)
-        return image_embeddings.cpu().tolist()
+        arr = image_embeddings.cpu().tolist()
+        # Pool patch embeddings to a single vector (mean across patches)
+        if isinstance(arr, list) and len(arr) > 0 and isinstance(arr[0], list):
+            pooled = np.mean(np.array(arr[0]), axis=0).tolist()
+            return pooled
+        return arr
     except Exception as e:
         logger.error(f"Nomic image embedding failed: {e}")
-        return [[0.0]*1024]
+        return [0.0]*1024
 
 # PDF embedding: extract first page as image, then embed
 def embed_pdf_nomic(pdf_bytes: bytes) -> list:
@@ -384,10 +435,15 @@ def embed_pdf_nomic(pdf_bytes: bytes) -> list:
         with torch.no_grad():
             image_embeddings = model(**batch_images)
         logger.info("Embedding complete. Returning result.")
-        return image_embeddings.cpu().tolist()
+        arr = image_embeddings.cpu().tolist()
+        # Pool patch embeddings to a single vector (mean across patches)
+        if isinstance(arr, list) and len(arr) > 0 and isinstance(arr[0], list):
+            pooled = np.mean(np.array(arr[0]), axis=0).tolist()
+            return pooled
+        return arr
     except Exception as e:
         logger.error(f"Nomic PDF embedding failed: {e}")
-        return [[0.0]*1024]
+        return [0.0]*1024
 
 # Audio embedding with Whisper + text embedding
 whisper_model = whisper.load_model("base", download_root=os.getenv("HF_HOME", "/Volumes/ssd/models"))
@@ -406,6 +462,17 @@ def embed_audio_whisper(audio_bytes: bytes) -> list:
     except Exception as e:
         logger.error(f"Whisper audio embedding failed: {e}")
         return [[0.0]*1024]
+
+# Global edge-graph config loader (Phase 1)
+edge_graph_config_loader = EdgeGraphConfigLoader()
+
+def get_edge_graph_config():
+    return edge_graph_config_loader.get_config()
+
+@app.get("/edge-graph/config")
+def get_edge_graph_config_endpoint(config: dict = Depends(get_edge_graph_config)):
+    """Return the current edge-graph config (for debugging/validation)."""
+    return config
 
 @app.get("/health", response_model=HealthResponse)
 async def health_check():
@@ -437,6 +504,30 @@ async def health_details():
         "neo4j": neo4j,
         "timestamp": datetime.utcnow().isoformat()
     }
+
+# Utility to normalize embeddings for Milvus (always returns list of flat float lists)
+def normalize_embeddings(embeddings, num_chunks):
+    # Recursively flatten to a list of floats
+    def flatten_recursive(e):
+        if isinstance(e, (list, tuple)):
+            result = []
+            for item in e:
+                result.extend(flatten_recursive(item))
+            return result
+        elif isinstance(e, float):
+            return [e]
+        elif isinstance(e, int):
+            return [float(e)]
+        else:
+            return []
+    # If embeddings is a list, flatten each
+    if isinstance(embeddings, list) and len(embeddings) > 0:
+        return [flatten_recursive(e) for e in embeddings]
+    # If embeddings is a single embedding, repeat for each chunk
+    if isinstance(embeddings, (list, tuple)) and all(isinstance(x, (float, int)) for x in embeddings):
+        return [list(map(float, embeddings))] * num_chunks
+    # Fallback: return zero vectors
+    return [[0.0]*1024 for _ in range(num_chunks)]
 
 @app.post("/docs/ingest", response_model=IngestResponse)
 async def ingest_document(
@@ -498,18 +589,62 @@ async def ingest_document(
             embeddings = embed_text_jina(chunks)
         elif detected_type.startswith("image"):
             logger.info("Routing to Nomic Embed Multimodal 7B for image embedding.")
-            embeddings = [embed_image_nomic(contents)] * len(chunks)
+            embedding = embed_image_nomic(contents)
+            if isinstance(embedding, list) and len(embedding) > 0 and isinstance(embedding[0], list):
+                embedding = embedding[0]
+            embeddings = [embedding] * len(chunks)
         elif "pdf" in detected_type:
             logger.info("Routing to Nomic Embed Multimodal 7B for PDF embedding.")
-            embeddings = [embed_pdf_nomic(contents)] * len(chunks)
+            embedding = embed_pdf_nomic(contents)
+            if isinstance(embedding, list) and len(embedding) > 0 and isinstance(embedding[0], list):
+                embedding = embedding[0]
+            embeddings = [embedding] * len(chunks)
         elif detected_type.startswith("audio"):
             logger.info("Routing to Whisper for audio embedding.")
             embeddings = [embed_audio_whisper(contents)] * len(chunks)
+        elif detected_type in ("text/csv", "application/vnd.ms-excel", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"):
+            logger.info("Detected CSV/Excel. Extracting text and embedding as text.")
+            # For CSV/Excel, treat as text for embedding
+            embeddings = embed_text_jina(chunks)
+        elif detected_type in ("application/msword", "application/vnd.openxmlformats-officedocument.wordprocessingml.document"):
+            logger.info("Detected Word doc. Extracting text and embedding as text.")
+            embeddings = embed_text_jina(chunks)
         else:
             logger.warning(f"Unsupported MIME type for embedding: {detected_type}")
             embeddings = []
+        # Normalize embeddings for Milvus
+        embeddings = normalize_embeddings(embeddings, len(chunks))
+        # Pad all embeddings to 1024-dim
+        for i in range(len(embeddings)):
+            if len(embeddings[i]) < 1024:
+                embeddings[i] = embeddings[i] + [0.0] * (1024 - len(embeddings[i]))
+            elif len(embeddings[i]) > 1024:
+                embeddings[i] = embeddings[i][:1024]
+        if embeddings:
+            logger.debug(f"First embedding: {embeddings[0][:10]} (type: {type(embeddings[0])}, length: {len(embeddings[0]) if isinstance(embeddings[0], (list, tuple)) else 'N/A'})")
         logger.info(f"Generated {len(embeddings)} embeddings.")
-        # TODO: Store embeddings in Milvus, metadata in Postgres
+        # Store embeddings in Milvus
+        if len(embeddings) > 0 and len(chunks) == len(embeddings):
+            from pymilvus import Collection
+            collection_name = f"{app_id}_{user_id or 'anon'}"
+            ensure_collection(collection_name)
+            collection = Collection(collection_name)
+            collection.load()
+            # Prepare data for Milvus insert (row-oriented, list of dicts)
+            insert_data = [
+                {
+                    "doc_id": str(f"{doc_id}_chunk{i}"),
+                    "embedding": list(map(float, embeddings[i])),
+                    "content": str(chunks[i]),
+                    "metadata": {"source_doc_id": doc_id, "chunk_index": i, "minio_path": minio_path}
+                }
+                for i in range(len(chunks))
+            ]
+            # Insert into Milvus
+            mr = collection.insert(insert_data)
+            logger.info(f"Inserted {len(chunks)} docs into Milvus collection {collection_name}. Insert result: {mr}")
+        else:
+            logger.warning("No embeddings or chunk/embedding count mismatch; skipping Milvus insert.")
         return IngestResponse(doc_id=doc_id, status="embedded", message=f"File uploaded. Type: {detected_type}. Embedding complete. {len(embeddings)} chunks.")
     except Exception as e:
         tb = traceback.format_exc()
@@ -595,8 +730,9 @@ async def query_vector(
     # 2. Milvus search (scoped to app_id/user_id)
     collection_name = f"{app_id}_{user_id}"  # Example naming
     try:
-        from pymilvus import Collection
+        ensure_collection(collection_name)
         collection = Collection(collection_name)
+        collection.load()
         # Build filter expression (Milvus supports limited filtering)
         exprs = []
         if filters:
@@ -647,10 +783,7 @@ async def query_graph(
     filters: Optional[str] = Form(None),
     graph_expansion: Optional[str] = Form(None),
 ):
-    """
-    GraphRAG query endpoint: vector search + graph expansion (context, time, semantic).
-    Accepts text or file (multimodal), app_id, user_id, filters, graph_expansion params.
-    """
+    explain = {}
     # Parse input (JSON or form)
     if request.headers.get("content-type", "").startswith("application/json"):
         body = await request.json()
@@ -660,15 +793,15 @@ async def query_graph(
         filters = body.get("filters")
         graph_expansion = body.get("graph_expansion")
         if not query or not app_id or not user_id:
-            return GraphQueryResponse(results=[])
+            return {"results": [], "explain": explain}
         try:
             query_embedding = jina_embedder.encode([query])[0]
         except Exception as e:
             logger.error(f"Embedding failed: {e}")
-            return GraphQueryResponse(results=[])
+            return {"results": [], "explain": explain}
     elif file is not None:
         if not app_id or not user_id:
-            return GraphQueryResponse(results=[])
+            return {"results": [], "explain": explain}
         contents = await file.read()
         detected_type = detect_file_type(file.filename, contents)
         logger.info(f"Detected file type: {detected_type}")
@@ -686,7 +819,7 @@ async def query_graph(
             query_embedding = [0.0]*1024
         else:
             logger.warning(f"Unsupported MIME type for embedding: {detected_type}")
-            return GraphQueryResponse(results=[])
+            return {"results": [], "explain": explain}
         if filters:
             import json
             try:
@@ -701,13 +834,33 @@ async def query_graph(
                 graph_expansion = None
     else:
         logger.warning("No valid input provided to /query/graph.")
-        return GraphQueryResponse(results=[])
+        return {"results": [], "explain": explain}
+
+    # --- Phase 2: Weighted edge expansion ---
+    # 1. Get edge weights (from config, or from graph_expansion if provided)
+    edge_weights = None
+    explain = {}
+    all_edge_types = None
+    if graph_expansion and isinstance(graph_expansion, dict) and "weights" in graph_expansion:
+        # Use weights from request if provided
+        edge_weights = {k: float(v) for k, v in graph_expansion["weights"].items()}
+        all_edge_types = list(graph_expansion["weights"].keys())
+    if not edge_weights:
+        # Fallback to config
+        edge_weights = edge_graph_config_loader.get_app_edge_weights(app_id)
+        all_edge_types = list(edge_weights.keys())
+    # Only use edge types with weight > 0 for expansion
+    edge_types = [k for k, v in edge_weights.items() if v > 0]
+    # Always include all edge types in explain, even if weight is zero
+    explain["used_edge_types"] = {k: edge_weights.get(k, 0.0) for k in all_edge_types}
+    explain["rerank"] = "Nodes/edges prioritized by edge weights"
 
     # Vector search in Milvus
     collection_name = f"{app_id}_{user_id}"
     try:
-        from pymilvus import Collection
+        ensure_collection(collection_name)
         collection = Collection(collection_name)
+        collection.load()
         exprs = []
         if filters:
             for k, v in filters.items():
@@ -736,13 +889,13 @@ async def query_graph(
             # --- Neo4j graph expansion ---
             nodes = []
             edges = []
+            driver = None
             try:
                 neo4j_uri = os.getenv("NEO4J_URI", "bolt://localhost:7687")
                 neo4j_user = os.getenv("NEO4J_USER", "neo4j")
                 neo4j_password = os.getenv("NEO4J_PASSWORD", "test")
                 driver = GraphDatabase.driver(neo4j_uri, auth=(neo4j_user, neo4j_password))
                 with driver.session() as session:
-                    # Build Cypher query based on graph_expansion params
                     depth = 1
                     exp_type = "context"
                     time_window = None
@@ -750,10 +903,11 @@ async def query_graph(
                         depth = int(graph_expansion.get("depth", 1))
                         exp_type = graph_expansion.get("type", "context")
                         time_window = graph_expansion.get("time_window")
-                    # Example Cypher for context/semantic expansion
+                    # Build Cypher to only expand selected edge types, order by weight
+                    edge_types_cypher = ", ".join(f"'{et}'" for et in edge_types)
                     cypher = f"""
                     MATCH (n:Chunk {{doc_id: $doc_id, app_id: $app_id, user_id: $user_id}})
-                    CALL apoc.path.subgraphAll(n, {{maxLevel: $depth}})
+                    CALL apoc.path.subgraphAll(n, {{maxLevel: $depth, relationshipFilter: {edge_types_cypher}}})
                     YIELD nodes, relationships
                     RETURN nodes, relationships
                     """
@@ -770,15 +924,26 @@ async def query_graph(
                             edges.append({
                                 "source": rel.start_node["doc_id"],
                                 "target": rel.end_node["doc_id"],
-                                "type": rel.type
+                                "type": rel.type,
+                                "weight": edge_weights.get(rel.type, 0)
                             })
             except Exception as e:
                 logger.error(f"Neo4j expansion failed for doc_id {doc_id}: {e}")
-                # Fallback: minimal context
                 nodes = [
                     {"id": doc_id, "label": "Result Chunk", "type": "result"}
                 ]
                 edges = []
+            finally:
+                if driver is not None:
+                    driver.close()
+            # Rerank nodes/edges by cumulative edge weights (simple sum for now)
+            node_weights = {}
+            for edge in edges:
+                node_weights[edge["source"]] = node_weights.get(edge["source"], 0) + edge["weight"]
+                node_weights[edge["target"]] = node_weights.get(edge["target"], 0) + edge["weight"]
+            # Sort nodes by weight (desc), fallback to original order
+            nodes = sorted(nodes, key=lambda n: node_weights.get(n["id"], 0), reverse=True)
+            explain["rerank"] = "Nodes/edges prioritized by edge weights"
             graph_context = {"nodes": nodes, "edges": edges}
             formatted.append(GraphQueryResult(
                 doc_id=doc_id,
@@ -787,11 +952,10 @@ async def query_graph(
                 metadata=entity.get("metadata", {}),
                 graph_context=graph_context
             ))
-        driver.close()
-        return GraphQueryResponse(results=formatted)
+        return {"results": formatted, "explain": explain}
     except Exception as e:
         logger.error(f"Milvus/Graph search failed: {e}")
-        return GraphQueryResponse(results=[])
+        return {"results": [], "explain": explain}
 
 # ---
 # Required Models for Application (for download.py)
