@@ -183,10 +183,9 @@ async def check_neo4j_detailed():
         neo4j_uri = os.getenv("NEO4J_URI", "bolt://localhost:7687")
         neo4j_user = os.getenv("NEO4J_USER", "neo4j")
         neo4j_password = os.getenv("NEO4J_PASSWORD", "test")
-        driver = GraphDatabase.driver(neo4j_uri, auth=(neo4j_user, neo4j_password))
-        with driver.session() as session:
-            session.run("RETURN 1")
-        driver.close()
+        with GraphDatabase.driver(neo4j_uri, auth=(neo4j_user, neo4j_password)) as driver:
+            with driver.session() as session:
+                session.run("RETURN 1")
         return {"status": "ok"}
     except Exception as e:
         tb = traceback.format_exc()
