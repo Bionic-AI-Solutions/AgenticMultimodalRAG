@@ -34,8 +34,10 @@ graph TD
 - Graph edges created for context, time, semantics
 
 ### Query
-- User query → vector search (Milvus)
-- Graph expansion (context, time) via Cognee
+- User query (text or file: image, audio, PDF, video) → /query/vector endpoint
+- MIME type detection → route to correct embedding/model pipeline
+- Vector search (Milvus)
+- Graph expansion (context, time) via Cognee (if /query/graph)
 - Results reranked and returned
 
 ## 4. Component Descriptions

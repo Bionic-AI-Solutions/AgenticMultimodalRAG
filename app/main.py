@@ -1,7 +1,7 @@
 from dotenv import load_dotenv
 load_dotenv()
 from datetime import datetime
-from fastapi import FastAPI, UploadFile, File, Form, Body
+from fastapi import FastAPI, UploadFile, File, Form, Body, Request, Depends
 from contextlib import asynccontextmanager
 from fastapi.middleware.cors import CORSMiddleware
 from typing import Dict, Optional, Any, List, Union
@@ -95,6 +95,26 @@ class VectorQueryResult(BaseModel):
 
 class VectorQueryResponse(BaseModel):
     results: List[VectorQueryResult]
+
+class GraphContextNode(BaseModel):
+    id: str
+    label: str
+    type: str
+
+class GraphContextEdge(BaseModel):
+    source: str
+    target: str
+    type: str
+
+class GraphQueryResult(BaseModel):
+    doc_id: str
+    score: float
+    content: str
+    metadata: Dict[str, Any]
+    graph_context: Dict[str, Any]  # nodes/edges
+
+class GraphQueryResponse(BaseModel):
+    results: List[GraphQueryResult]
 
 # Milvus connection utility
 MILVUS_HOST = os.getenv("MILVUS_HOST", "localhost")
@@ -497,26 +517,90 @@ async def ingest_document(
         return JSONResponse(status_code=500, content={"status": "error", "message": str(e)})
 
 @app.post("/query/vector", response_model=VectorQueryResponse)
-async def query_vector(request: VectorQueryRequest = Body(...)):
+async def query_vector(
+    request: Request,
+    file: UploadFile = File(None),
+    query: str = Form(None),
+    app_id: str = Form(None),
+    user_id: str = Form(None),
+    filters: Optional[str] = Form(None),
+    legacy_body: Optional[VectorQueryRequest] = Body(None)
+):
     """
-    Vector search endpoint for text queries with flexible metadata/temporal filtering.
+    Vector search endpoint for multimodal queries (text, image, audio, PDF, video) with flexible metadata/temporal filtering.
+    Accepts either JSON (text, legacy VectorQueryRequest) or multipart/form-data (file).
     """
-    # 1. Embed the query
-    try:
-        query_embedding = jina_embedder.encode([request.query])[0]
-    except Exception as e:
-        logger.error(f"Embedding failed: {e}")
+    # Legacy JSON body (VectorQueryRequest) for backwards compatibility
+    if legacy_body is not None:
+        try:
+            query_embedding = jina_embedder.encode([legacy_body.query])[0]
+        except Exception as e:
+            logger.error(f"Embedding failed: {e}")
+            return VectorQueryResponse(results=[])
+        app_id = legacy_body.app_id
+        user_id = legacy_body.user_id
+        filters = legacy_body.filters
+        top_k = legacy_body.top_k
+    # If JSON, parse as before
+    elif request.headers.get("content-type", "").startswith("application/json"):
+        body = await request.json()
+        query = body.get("query")
+        app_id = body.get("app_id")
+        user_id = body.get("user_id")
+        filters = body.get("filters")
+        top_k = body.get("top_k", 10)
+        if not query or not app_id or not user_id:
+            return VectorQueryResponse(results=[])
+        try:
+            query_embedding = jina_embedder.encode([query])[0]
+        except Exception as e:
+            logger.error(f"Embedding failed: {e}")
+            return VectorQueryResponse(results=[])
+    # If multipart/form-data, handle file
+    elif file is not None:
+        if not app_id or not user_id:
+            return VectorQueryResponse(results=[])
+        contents = await file.read()
+        detected_type = detect_file_type(file.filename, contents)
+        logger.info(f"Detected file type: {detected_type}")
+        # Route to embedding/model pipeline
+        if detected_type.startswith("text"):
+            text = extract_text(contents)
+            query_embedding = jina_embedder.encode([text])[0]
+        elif detected_type.startswith("image"):
+            query_embedding = embed_image_nomic(contents)[0]
+        elif "pdf" in detected_type:
+            query_embedding = embed_pdf_nomic(contents)[0]
+        elif detected_type.startswith("audio"):
+            query_embedding = embed_audio_whisper(contents)[0]
+        elif detected_type.startswith("video"):
+            # TODO: Implement video embedding (extract key frames, use image embedding)
+            logger.warning("Video embedding not implemented; returning placeholder embedding.")
+            query_embedding = [0.0]*1024
+        else:
+            logger.warning(f"Unsupported MIME type for embedding: {detected_type}")
+            return VectorQueryResponse(results=[])
+        # Parse filters if present
+        if filters:
+            import json
+            try:
+                filters = json.loads(filters)
+            except Exception:
+                filters = None
+        top_k = 10
+    else:
+        logger.warning("No valid input provided to /query/vector.")
         return VectorQueryResponse(results=[])
 
     # 2. Milvus search (scoped to app_id/user_id)
-    collection_name = f"{request.app_id}_{request.user_id}"  # Example naming
+    collection_name = f"{app_id}_{user_id}"  # Example naming
     try:
         from pymilvus import Collection
         collection = Collection(collection_name)
         # Build filter expression (Milvus supports limited filtering)
         exprs = []
-        if request.filters:
-            for k, v in request.filters.items():
+        if filters:
+            for k, v in filters.items():
                 if k in ("created_after", "created_before"):
                     # Assume metadata.created_at is ISO string
                     if k == "created_after":
@@ -535,7 +619,7 @@ async def query_vector(request: VectorQueryRequest = Body(...)):
             data=[query_embedding],
             anns_field="embedding",
             param=search_params,
-            limit=request.top_k,
+            limit=top_k,
             expr=expr
         )
         # Format results
@@ -552,6 +636,162 @@ async def query_vector(request: VectorQueryRequest = Body(...)):
     except Exception as e:
         logger.error(f"Milvus search failed: {e}")
         return VectorQueryResponse(results=[])
+
+@app.post("/query/graph", response_model=GraphQueryResponse)
+async def query_graph(
+    request: Request,
+    file: UploadFile = File(None),
+    query: str = Form(None),
+    app_id: str = Form(None),
+    user_id: str = Form(None),
+    filters: Optional[str] = Form(None),
+    graph_expansion: Optional[str] = Form(None),
+):
+    """
+    GraphRAG query endpoint: vector search + graph expansion (context, time, semantic).
+    Accepts text or file (multimodal), app_id, user_id, filters, graph_expansion params.
+    """
+    # Parse input (JSON or form)
+    if request.headers.get("content-type", "").startswith("application/json"):
+        body = await request.json()
+        query = body.get("query")
+        app_id = body.get("app_id")
+        user_id = body.get("user_id")
+        filters = body.get("filters")
+        graph_expansion = body.get("graph_expansion")
+        if not query or not app_id or not user_id:
+            return GraphQueryResponse(results=[])
+        try:
+            query_embedding = jina_embedder.encode([query])[0]
+        except Exception as e:
+            logger.error(f"Embedding failed: {e}")
+            return GraphQueryResponse(results=[])
+    elif file is not None:
+        if not app_id or not user_id:
+            return GraphQueryResponse(results=[])
+        contents = await file.read()
+        detected_type = detect_file_type(file.filename, contents)
+        logger.info(f"Detected file type: {detected_type}")
+        if detected_type.startswith("text"):
+            text = extract_text(contents)
+            query_embedding = jina_embedder.encode([text])[0]
+        elif detected_type.startswith("image"):
+            query_embedding = embed_image_nomic(contents)[0]
+        elif "pdf" in detected_type:
+            query_embedding = embed_pdf_nomic(contents)[0]
+        elif detected_type.startswith("audio"):
+            query_embedding = embed_audio_whisper(contents)[0]
+        elif detected_type.startswith("video"):
+            logger.warning("Video embedding not implemented; returning placeholder embedding.")
+            query_embedding = [0.0]*1024
+        else:
+            logger.warning(f"Unsupported MIME type for embedding: {detected_type}")
+            return GraphQueryResponse(results=[])
+        if filters:
+            import json
+            try:
+                filters = json.loads(filters)
+            except Exception:
+                filters = None
+        if graph_expansion:
+            import json
+            try:
+                graph_expansion = json.loads(graph_expansion)
+            except Exception:
+                graph_expansion = None
+    else:
+        logger.warning("No valid input provided to /query/graph.")
+        return GraphQueryResponse(results=[])
+
+    # Vector search in Milvus
+    collection_name = f"{app_id}_{user_id}"
+    try:
+        from pymilvus import Collection
+        collection = Collection(collection_name)
+        exprs = []
+        if filters:
+            for k, v in filters.items():
+                if k in ("created_after", "created_before"):
+                    if k == "created_after":
+                        exprs.append(f"metadata[\"created_at\"] >= '{v}'")
+                    else:
+                        exprs.append(f"metadata[\"created_at\"] <= '{v}'")
+                elif isinstance(v, list):
+                    exprs.append(f"metadata[\"{k}\"] in {v}")
+                else:
+                    exprs.append(f"metadata[\"{k}\"] == '{v}'")
+        expr = " and ".join(exprs) if exprs else None
+        search_params = {"metric_type": "IP", "params": {"nprobe": 16}}
+        results = collection.search(
+            data=[query_embedding],
+            anns_field="embedding",
+            param=search_params,
+            limit=10,
+            expr=expr
+        )
+        formatted = []
+        for hit in results[0]:
+            entity = hit.entity
+            doc_id = entity.get("doc_id", "")
+            # --- Neo4j graph expansion ---
+            nodes = []
+            edges = []
+            try:
+                neo4j_uri = os.getenv("NEO4J_URI", "bolt://localhost:7687")
+                neo4j_user = os.getenv("NEO4J_USER", "neo4j")
+                neo4j_password = os.getenv("NEO4J_PASSWORD", "test")
+                driver = GraphDatabase.driver(neo4j_uri, auth=(neo4j_user, neo4j_password))
+                with driver.session() as session:
+                    # Build Cypher query based on graph_expansion params
+                    depth = 1
+                    exp_type = "context"
+                    time_window = None
+                    if graph_expansion:
+                        depth = int(graph_expansion.get("depth", 1))
+                        exp_type = graph_expansion.get("type", "context")
+                        time_window = graph_expansion.get("time_window")
+                    # Example Cypher for context/semantic expansion
+                    cypher = f"""
+                    MATCH (n:Chunk {{doc_id: $doc_id, app_id: $app_id, user_id: $user_id}})
+                    CALL apoc.path.subgraphAll(n, {{maxLevel: $depth}})
+                    YIELD nodes, relationships
+                    RETURN nodes, relationships
+                    """
+                    params = {"doc_id": doc_id, "app_id": app_id, "user_id": user_id, "depth": depth}
+                    result = session.run(cypher, **params)
+                    for record in result:
+                        for node in record["nodes"]:
+                            nodes.append({
+                                "id": node["doc_id"],
+                                "label": node.get("label", node["doc_id"]),
+                                "type": node.get("type", "chunk")
+                            })
+                        for rel in record["relationships"]:
+                            edges.append({
+                                "source": rel.start_node["doc_id"],
+                                "target": rel.end_node["doc_id"],
+                                "type": rel.type
+                            })
+            except Exception as e:
+                logger.error(f"Neo4j expansion failed for doc_id {doc_id}: {e}")
+                # Fallback: minimal context
+                nodes = [
+                    {"id": doc_id, "label": "Result Chunk", "type": "result"}
+                ]
+                edges = []
+            graph_context = {"nodes": nodes, "edges": edges}
+            formatted.append(GraphQueryResult(
+                doc_id=doc_id,
+                score=hit.score,
+                content=entity.get("content", ""),
+                metadata=entity.get("metadata", {}),
+                graph_context=graph_context
+            ))
+        driver.close()
+        return GraphQueryResponse(results=formatted)
+    except Exception as e:
+        logger.error(f"Milvus/Graph search failed: {e}")
+        return GraphQueryResponse(results=[])
 
 # ---
 # Required Models for Application (for download.py)

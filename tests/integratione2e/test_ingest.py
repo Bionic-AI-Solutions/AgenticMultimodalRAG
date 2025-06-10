@@ -57,4 +57,62 @@ def test_query_vector_integration():
         assert "doc_id" in r
         assert "score" in r
         assert "content" in r
-        assert "metadata" in r 
+        assert "metadata" in r
+
+@pytest.mark.parametrize('filename,expected_mime', [
+    ('sample.jpg', 'image/jpeg'),
+    ('sample.mp3', 'audio/mpeg'),
+    ('sample.pdf', 'application/pdf'),
+    ('sample.mp4', 'video/mp4'),
+])
+def test_query_vector_multimodal(filename, expected_mime):
+    path = os.path.join('samples', filename)
+    if not os.path.exists(path):
+        pytest.skip(f"Sample file {filename} not found")
+    with open(path, 'rb') as f:
+        response = client.post(
+            '/query/vector',
+            files={'file': (filename, f, expected_mime)},
+            data={'app_id': 'testapp', 'user_id': 'testuser'}
+        )
+    assert response.status_code == 200
+    data = response.json()
+    assert 'results' in data
+    # For video, results may be empty or placeholder
+    if filename == 'sample.mp4':
+        assert isinstance(data['results'], list)
+
+@pytest.mark.integration
+def test_query_graph_text_context():
+    req = {
+        "query": "sample",
+        "app_id": "test",
+        "user_id": "test",
+        "graph_expansion": {"depth": 1, "type": "context"}
+    }
+    resp = client.post("/query/graph", json=req)
+    assert resp.status_code == 200
+    data = resp.json()
+    assert "results" in data
+    for r in data["results"]:
+        assert "graph_context" in r
+        assert "nodes" in r["graph_context"]
+        assert "edges" in r["graph_context"]
+
+@pytest.mark.integration
+def test_query_graph_image_semantic():
+    path = os.path.join('samples', 'sample.jpg')
+    if not os.path.exists(path):
+        pytest.skip("Sample image not found")
+    with open(path, 'rb') as f:
+        resp = client.post(
+            '/query/graph',
+            files={'file': ('sample.jpg', f, 'image/jpeg')},
+            data={'app_id': 'test', 'user_id': 'test', 'graph_expansion': '{"depth": 2, "type": "semantic"}'}
+        )
+    assert resp.status_code == 200
+    data = resp.json()
+    for r in data["results"]:
+        assert "graph_context" in r
+        assert "nodes" in r["graph_context"]
+        assert "edges" in r["graph_context"] 
