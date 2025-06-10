@@ -23,12 +23,16 @@ MODELS = [
 ]
 
 def download_sentence_transformer(model_name):
-    logger.info(f"Downloading SentenceTransformer model: {model_name}")
-    SentenceTransformer(model_name, cache_folder=MODEL_DIR, trust_remote_code=True)
+    model_path = os.path.join(MODEL_DIR, model_name.replace('/', '__'))
+    if not os.path.exists(model_path):
+        logger.info(f"Downloading SentenceTransformer model: {model_name}")
+        SentenceTransformer(model_name, cache_folder=MODEL_DIR, trust_remote_code=True)
 
 def download_huggingface(model_name):
-    logger.info(f"Downloading HuggingFace model: {model_name}")
-    snapshot_download(repo_id=model_name, local_dir=os.path.join(MODEL_DIR, model_name), local_dir_use_symlinks=False)
+    model_path = os.path.join(MODEL_DIR, model_name)
+    if not os.path.exists(model_path) or not os.path.exists(os.path.join(model_path, "config.json")):
+        logger.info(f"Downloading HuggingFace model: {model_name}")
+        snapshot_download(repo_id=model_name, local_dir=model_path, local_dir_use_symlinks=False)
 
 def main():
     for model_name, model_type in MODELS:

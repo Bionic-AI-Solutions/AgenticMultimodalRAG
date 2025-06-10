@@ -1,10 +1,10 @@
 from dotenv import load_dotenv
 load_dotenv()
 from datetime import datetime
-from fastapi import FastAPI, UploadFile, File, Form
+from fastapi import FastAPI, UploadFile, File, Form, Body
 from contextlib import asynccontextmanager
 from fastapi.middleware.cors import CORSMiddleware
-from typing import Dict, Optional
+from typing import Dict, Optional, Any, List, Union
 from pydantic import BaseModel
 import logging
 import os
@@ -34,6 +34,10 @@ import huggingface_hub
 # Configure logging
 logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO"))
 logger = logging.getLogger(__name__)
+
+# Set HuggingFace cache at the very top
+os.environ["HF_HOME"] = os.getenv("HF_HOME", "/Volumes/ssd/models")
+os.environ["TRANSFORMERS_CACHE"] = os.getenv("HF_HOME", "/Volumes/ssd/models")
 
 # Move the lifespan definition here (before app = FastAPI(...))
 @asynccontextmanager
@@ -75,6 +79,22 @@ class IngestResponse(BaseModel):
     doc_id: str
     status: str
     message: Optional[str] = None
+
+class VectorQueryRequest(BaseModel):
+    query: str
+    app_id: str
+    user_id: str
+    top_k: int = 10
+    filters: Optional[Dict[str, Any]] = None  # Flexible key-value filters
+
+class VectorQueryResult(BaseModel):
+    doc_id: str
+    score: float
+    content: str
+    metadata: Dict[str, Any]
+
+class VectorQueryResponse(BaseModel):
+    results: List[VectorQueryResult]
 
 # Milvus connection utility
 MILVUS_HOST = os.getenv("MILVUS_HOST", "localhost")
@@ -274,10 +294,10 @@ def chunk_text_recursive(text: str, chunk_size: int = 512, overlap: int = 102, s
     return chunks
 
 # Text embedding with Jina Embeddings v2 via SentenceTransformers
-jina_embedder = SentenceTransformer("jinaai/jina-embeddings-v2-base-en", trust_remote_code=True)
+jina_embedder = SentenceTransformer("jinaai/jina-embeddings-v2-base-en", trust_remote_code=True, cache_folder=os.getenv("HF_HOME", "/Volumes/ssd/models"))
 
 # Fallback: Sentence Transformers (BGE-M3, etc.)
-sbert_embedder = SentenceTransformer("BAAI/bge-m3")
+sbert_embedder = SentenceTransformer("BAAI/bge-m3", cache_folder=os.getenv("HF_HOME", "/Volumes/ssd/models"))
 
 def embed_text_jina(chunks: list[str]) -> list:
     try:
@@ -295,17 +315,17 @@ nomic_processor = None
 
 def get_nomic_model():
     global nomic_model, nomic_processor
-    model_path = "/Volumes/ssd/models/nomic-ai/colnomic-embed-multimodal-7b"
-    processor_path = "/Volumes/ssd/models/nomic-ai/colnomic-embed-multimodal-7b"
+    model_path = os.path.join(os.getenv("HF_HOME", "/Volumes/ssd/models"), "nomic-ai/colnomic-embed-multimodal-7b")
+    processor_path = model_path
     if nomic_model is None or nomic_processor is None:
         logger.info(f"Checking for Nomic model at {model_path}")
-        if not os.path.exists(model_path):
+        if not os.path.exists(model_path) or not os.path.exists(os.path.join(model_path, "config.json")):
             logger.info("Nomic model not found locally. Downloading from HuggingFace...")
             huggingface_hub.snapshot_download(repo_id="nomic-ai/colnomic-embed-multimodal-7b", local_dir=model_path, local_dir_use_symlinks=False)
         logger.info("Loading Nomic model...")
-        nomic_model = ColQwen2_5.from_pretrained(model_path)
+        nomic_model = ColQwen2_5.from_pretrained(model_path, cache_dir=os.getenv("HF_HOME", "/Volumes/ssd/models"))
         logger.info("Loading Nomic processor with use_fast=False...")
-        nomic_processor = ColQwen2_5_Processor.from_pretrained(processor_path, use_fast=False)
+        nomic_processor = ColQwen2_5_Processor.from_pretrained(processor_path, use_fast=False, cache_dir=os.getenv("HF_HOME", "/Volumes/ssd/models"))
         logger.info("Loaded slow processor.")
     return nomic_model, nomic_processor
 
@@ -350,7 +370,7 @@ def embed_pdf_nomic(pdf_bytes: bytes) -> list:
         return [[0.0]*1024]
 
 # Audio embedding with Whisper + text embedding
-whisper_model = whisper.load_model("base")
+whisper_model = whisper.load_model("base", download_root=os.getenv("HF_HOME", "/Volumes/ssd/models"))
 def embed_audio_whisper(audio_bytes: bytes) -> list:
     try:
         # Save to temp file for whisper
@@ -475,6 +495,63 @@ async def ingest_document(
         tb = traceback.format_exc()
         logger.error(f"Ingestion failed: {e}\n{tb}")
         return JSONResponse(status_code=500, content={"status": "error", "message": str(e)})
+
+@app.post("/query/vector", response_model=VectorQueryResponse)
+async def query_vector(request: VectorQueryRequest = Body(...)):
+    """
+    Vector search endpoint for text queries with flexible metadata/temporal filtering.
+    """
+    # 1. Embed the query
+    try:
+        query_embedding = jina_embedder.encode([request.query])[0]
+    except Exception as e:
+        logger.error(f"Embedding failed: {e}")
+        return VectorQueryResponse(results=[])
+
+    # 2. Milvus search (scoped to app_id/user_id)
+    collection_name = f"{request.app_id}_{request.user_id}"  # Example naming
+    try:
+        from pymilvus import Collection
+        collection = Collection(collection_name)
+        # Build filter expression (Milvus supports limited filtering)
+        exprs = []
+        if request.filters:
+            for k, v in request.filters.items():
+                if k in ("created_after", "created_before"):
+                    # Assume metadata.created_at is ISO string
+                    if k == "created_after":
+                        exprs.append(f"metadata[\"created_at\"] >= '{v}'")
+                    else:
+                        exprs.append(f"metadata[\"created_at\"] <= '{v}'")
+                elif isinstance(v, list):
+                    exprs.append(f"metadata[\"{k}\"] in {v}")
+                else:
+                    exprs.append(f"metadata[\"{k}\"] == '{v}'")
+        expr = " and ".join(exprs) if exprs else None
+        logger.info(f"Milvus search expr: {expr}")
+        # Search in Milvus
+        search_params = {"metric_type": "IP", "params": {"nprobe": 16}}
+        results = collection.search(
+            data=[query_embedding],
+            anns_field="embedding",
+            param=search_params,
+            limit=request.top_k,
+            expr=expr
+        )
+        # Format results
+        formatted = []
+        for hit in results[0]:
+            entity = hit.entity
+            formatted.append(VectorQueryResult(
+                doc_id=entity.get("doc_id", ""),
+                score=hit.score,
+                content=entity.get("content", ""),
+                metadata=entity.get("metadata", {})
+            ))
+        return VectorQueryResponse(results=formatted)
+    except Exception as e:
+        logger.error(f"Milvus search failed: {e}")
+        return VectorQueryResponse(results=[])
 
 # ---
 # Required Models for Application (for download.py)

@@ -35,4 +35,26 @@ def test_health():
     assert response.status_code == 200
     data = response.json()
     assert 'status' in data
-    assert 'services' in data 
+    assert 'services' in data
+
+@pytest.mark.integration
+def test_query_vector_integration():
+    # This test assumes Milvus is running and at least one document is ingested for app_id=user_id='test'
+    req = {
+        "query": "sample",
+        "app_id": "test",
+        "user_id": "test",
+        "top_k": 3,
+        "filters": {"doc_type": "txt"}
+    }
+    resp = client.post("/query/vector", json=req)
+    assert resp.status_code == 200
+    data = resp.json()
+    # Should not error, may return 0 or more results
+    assert "results" in data
+    # Optionally check structure of results
+    for r in data["results"]:
+        assert "doc_id" in r
+        assert "score" in r
+        assert "content" in r
+        assert "metadata" in r 
