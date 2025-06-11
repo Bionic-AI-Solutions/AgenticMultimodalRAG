@@ -52,5 +52,6 @@
   "/Volumes/ssd/mac/models/openai__whisper-base/special_tokens_map.json": "e67ae3a0aaa99abcd9f187138e12db1f65c16a14761c50ef10eef2c174a7a691",
   "/Volumes/ssd/mac/models/openai__whisper-base/tokenizer.json": "27fc476bfe7f17299480be2273fc0608e4d5a99aba2ab5dec5374b4482d1a566",
   "/Volumes/ssd/mac/models/openai__whisper-base/tokenizer_config.json": "2a4c4281cf9f51ac6ccc406fdc711a087afe6530f671fa7b80953edc498275ce",
-  "/Volumes/ssd/mac/models/openai__whisper-base/vocab.json": "8f680bba319e01a653d2e8a5dbc17a9157179e0576e6ce74ce0c06356c6e24f9"
+  "/Volumes/ssd/mac/models/openai__whisper-base/vocab.json": "8f680bba319e01a653d2e8a5dbc17a9157179e0576e6ce74ce0c06356c6e24f9",
+  "/Volumes/ssd/mac/models/nomic-ai__colnomic-embed-multimodal-7b/README.md": "b8f4e66f670d68faa656a193bc0f8225d1141b3b2d24a545a9d2a289d7e586fb"
 }

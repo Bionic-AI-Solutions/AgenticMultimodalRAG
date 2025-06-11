@@ -34,6 +34,8 @@ logging.basicConfig(
     ]
 )
 logger = logging.getLogger("download_models")
+# Set file_hash_manager logger to DEBUG for detailed hash logs
+logging.getLogger("file_hash_manager").setLevel(logging.DEBUG)
 
 # Define device
 DEVICE = "cuda:0" if torch.cuda.is_available() else "cpu"
@@ -161,6 +163,17 @@ MODELS = [
         }
     }
 ]
+
+# Dynamically set essential files for Nomic multimodal model to all .safetensors, .json, and README.md files in the repo
+for model in MODELS:
+    if model["name"] == "nomic-ai/colnomic-embed-multimodal-7b":
+        from huggingface_hub import HfApi
+        api = HfApi()
+        repo_files = api.list_repo_files(model["name"])
+        # Only require files that actually exist in the repo and are needed for colpali/transformers
+        model["essential_files"] = [
+            f for f in repo_files if f.endswith(('.safetensors', '.json')) or f == 'README.md'
+        ]
 
 def get_system_info() -> Dict[str, Any]:
     """Get system information for metadata"""
