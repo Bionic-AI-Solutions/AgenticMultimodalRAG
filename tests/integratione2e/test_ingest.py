@@ -51,13 +51,15 @@ def text_embedder():
     model = SentenceTransformer("jinaai/jina-embeddings-v2-base-en", trust_remote_code=True, cache_folder=os.getenv("HF_HOME", "/home/user/RAG/models"))
     return model
 
+# from colpali_engine.models import ColQwen2_5, ColQwen2_5_Processor
+
 @pytest.fixture(scope="session")
 def multimodal_embedder():
-    from colpali_engine.models import ColQwen2_5, ColQwen2_5_Processor
-    model_path = os.path.join(os.getenv("HF_HOME", "/home/user/RAG/models"), "nomic-ai/colnomic-embed-multimodal-7b")
-    model = ColQwen2_5.from_pretrained(model_path, cache_dir=os.getenv("HF_HOME", "/home/user/RAG/models"))
-    processor = ColQwen2_5_Processor.from_pretrained(model_path, use_fast=False, cache_dir=os.getenv("HF_HOME", "/home/user/RAG/models"))
-    return model, processor
+    # model_path = os.path.join(os.getenv("HF_HOME", "/home/user/RAG/models"), "nomic-ai/colnomic-embed-multimodal-7b")
+    # model = ColQwen2_5.from_pretrained(model_path, cache_dir=os.getenv("HF_HOME", "/home/user/RAG/models"))
+    # processor = ColQwen2_5_Processor.from_pretrained(model_path, use_fast=False, cache_dir=os.getenv("HF_HOME", "/home/user/RAG/models"))
+    # return model, processor
+    pass
 
 @pytest.fixture(scope="session")
 def audio_processor():

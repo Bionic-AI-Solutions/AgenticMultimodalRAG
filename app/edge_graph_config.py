@@ -9,6 +9,8 @@ from watchdog.events import FileSystemEventHandler
 logger = logging.getLogger(__name__)
 
 class EdgeGraphConfigLoader:
+    _observers = {}  # class-level: path -> observer
+
     def __init__(self, config_path: str = 'config/edge_graph.yaml'):
         self._config_path = config_path
         self._lock = threading.RLock()
@@ -67,6 +69,9 @@ class EdgeGraphConfigLoader:
             return dict(self._config.get('default_edge_types', {}))
 
     def _start_watcher(self):
+        if self._config_path in EdgeGraphConfigLoader._observers:
+            # Already watching this path
+            return
         class Handler(FileSystemEventHandler):
             def __init__(self, loader):
                 self.loader = loader
@@ -79,4 +84,5 @@ class EdgeGraphConfigLoader:
         handler = Handler(self)
         observer.schedule(handler, dirname, recursive=False)
         observer.daemon = True
-        observer.start() 
+        observer.start()
+        EdgeGraphConfigLoader._observers[self._config_path] = observer 

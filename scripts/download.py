@@ -16,12 +16,13 @@ import platform
 import torch
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from app.file_hash_manager import update_hash, get_stored_hash, verify_or_download, compute_sha256
 
 # Load .env if present
 load_dotenv()
 
 # Configurable model directory
-MODEL_DIR = os.getenv("MODEL_DIR") or os.getenv("HF_HOME") or os.getenv("TRANSFORMERS_CACHE") or "/home/user/RAG/models"
+MODEL_DIR = os.getenv("MODEL_DIR") or os.getenv("HF_HOME") or os.getenv("TRANSFORMERS_CACHE") or "/Volumes/ssd/mac/models"
 os.makedirs(MODEL_DIR, exist_ok=True)
 
 # Configure logging
@@ -184,40 +185,35 @@ def retry_on_exception(exception_types: Tuple[Exception, ...]):
     retry=retry_on_exception((requests.exceptions.RequestException, OSError))
 )
 def fetch_file_with_retry(api: HfApi, model_name: str, file: str) -> Optional[str]:
-    """Fetch a single file with retry mechanism"""
+    """Fetch a single file with retry mechanism and log why download is triggered."""
     try:
-        file_info = api.hf_hub_download(
-            repo_id=model_name,
-            filename=file,
-            repo_type="model",
-            local_dir=MODEL_DIR,
-            local_dir_use_symlinks=False,
-            resume_download=True
-        )
-        return file_info
+        model_dir = os.getenv("MODEL_DIR") or os.getenv("HF_HOME") or os.getenv("TRANSFORMERS_CACHE") or "/Volumes/ssd/mac/models"
+        model_path = os.path.join(model_dir, model_name.replace('/', '__'))
+        file_path = os.path.join(model_path, file)
+        expected_hash = get_stored_hash(file_path)
+        def download_func(path):
+            api.hf_hub_download(
+                repo_id=model_name,
+                filename=file,
+                repo_type="model",
+                cache_dir=model_path,
+                local_dir=model_path,
+                local_dir_use_symlinks=False
+            )
+        verify_or_download(file_path, expected_hash, download_func)
+        # After download, update hash
+        update_hash(file_path)
+        return file_path
     except Exception as e:
-        logger.warning(f"Failed to fetch {file} from {model_name}: {str(e)}")
-        raise
+        logger.error(f"Failed to fetch file {file} for model {model_name}: {e}")
+        return None
 
 def get_actual_model_path(model_info: Dict[str, Any]) -> str:
     """Get the actual path where the model is downloaded"""
     model_name = model_info["name"]
-    if model_info["type"] == "sentence-transformers":
-        # For sentence-transformers, construct the path based on the model name
-        # The model is stored in a directory with double underscores replacing slashes
-        model_path = os.path.join(MODEL_DIR, model_name.replace('/', '__'))
-        if not os.path.exists(model_path):
-            # If the path doesn't exist, try the alternative path format
-            model_path = os.path.join(MODEL_DIR, model_name.split('/')[-1])
-        return model_path
-    else:
-        # For huggingface models, use snapshot_download to get the path
-        return snapshot_download(
-            repo_id=model_name,
-            local_dir=MODEL_DIR,
-            local_dir_use_symlinks=False,
-            resume_download=True
-        )
+    # Use double underscore convention for all models
+    model_path = os.path.join(MODEL_DIR, model_name.replace('/', '__'))
+    return model_path
 
 def verify_file_checksum(file_path: str, expected_hash: str) -> Tuple[str, bool, Optional[str]]:
     """Verify checksum for a single file"""
@@ -225,7 +221,7 @@ def verify_file_checksum(file_path: str, expected_hash: str) -> Tuple[str, bool,
         if not os.path.exists(file_path):
             return file_path, False, "File not found"
         
-        actual_hash = calculate_file_hash(file_path)
+        actual_hash = compute_sha256(file_path)
         is_valid = actual_hash == expected_hash
         
         if not is_valid:
@@ -343,7 +339,7 @@ def fetch_model_checksums(model_name: str) -> Dict[str, str]:
                     try:
                         file_info = future.result()
                         if file_info and os.path.exists(file_info):
-                            checksums[file] = calculate_file_hash(file_info)
+                            checksums[file] = compute_sha256(file_info)
                             # Clean up the downloaded file
                             os.remove(file_info)
                     except Exception as e:
@@ -367,10 +363,8 @@ def calculate_file_hash(file_path: str, hash_type: str = "sha256") -> str:
 def verify_model_download(model_info: Dict) -> bool:
     """Verify that the model was downloaded correctly"""
     model_name = model_info["name"]
+    # Always use double-underscore convention for all models
     model_path = os.path.join(MODEL_DIR, model_name.replace('/', '__'))
-    
-    if model_info["type"] == "sentence-transformers":
-        model_path = os.path.join(MODEL_DIR, model_name)
     
     if not os.path.exists(model_path):
         return False
@@ -410,42 +404,76 @@ def save_model_metadata(model_info: Dict, success: bool):
     with open(metadata_path, 'w') as f:
         json.dump(metadata, f, indent=2)
 
+def get_essential_files(model_info: Dict[str, Any], repo_files: List[str]) -> List[str]:
+    """Determine the essential files for a model, either from model_info or by inferring from repo."""
+    if "essential_files" in model_info:
+        return model_info["essential_files"]
+    # Default: all .json, .bin, .safetensors, .txt files in repo
+    return [f for f in repo_files if f.endswith((".json", ".bin", ".safetensors", ".txt"))]
+
+def get_abs_path(model_dir, rel_path):
+    """Return the absolute path for a file given the model directory and its relative path."""
+    return os.path.abspath(os.path.join(model_dir, rel_path))
+
 def download_model(model_info: Dict[str, Any]) -> bool:
-    """Download a model and verify its checksums."""
+    """Download all essential files for a model, always verifying and updating hashes."""
+    from huggingface_hub import HfApi
     model_name = model_info["name"]
-    model_type = model_info["type"]
-    model_dir = os.path.join(MODEL_DIR, model_name.split("/")[-1])
+    model_dir = os.path.join(MODEL_DIR, model_name.replace('/', '__'))
     os.makedirs(model_dir, exist_ok=True)
-    logger.info(f"Downloading {model_name} to {model_dir}")
+    logger.info(f"Checking {model_name} in {model_dir}")
 
-    try:
-        # Use snapshot_download for all models to ensure files match the repo
-        actual_model_path = snapshot_download(
-            repo_id=model_name,
-            local_dir=model_dir,
-            local_dir_use_symlinks=False,
-            resume_download=True,
-            max_workers=3
-        )
-        logger.info(f"Downloaded {model_name} to {actual_model_path}")
+    api = HfApi()
+    repo_files = api.list_repo_files(model_name)
+    essential_files = get_essential_files(model_info, repo_files)
 
-        # For sentence-transformers, load the model from the local path
-        if model_type == "sentence-transformers":
-            logger.info(f"Loading sentence-transformers model from {actual_model_path}")
-            model = SentenceTransformer(actual_model_path, device=DEVICE)
-            # Optionally, save the model again if needed
-            # model.save(actual_model_path)
+    for file_name in essential_files:
+        file_path = get_abs_path(model_dir, file_name)
+        # Ensure parent directory exists
+        os.makedirs(os.path.dirname(file_path), exist_ok=True)
+        logger.debug(f"Checking file: {file_path} (exists: {os.path.exists(file_path)})")
+        expected_hash = model_info["metadata"].get("checksums", {}).get(file_name)
+        needs_download = False
+        if not os.path.exists(file_path):
+            logger.info(f"File missing: {file_name}")
+            needs_download = True
+        elif expected_hash:
+            actual_hash = compute_sha256(file_path)
+            if actual_hash != expected_hash:
+                logger.info(f"Hash mismatch for {file_name}: expected {expected_hash}, got {actual_hash}")
+                needs_download = True
+        if needs_download:
+            try:
+                hf_hub_download(
+                    repo_id=model_name,
+                    filename=file_name,
+                    cache_dir=model_dir,
+                    local_dir=model_dir,
+                    local_dir_use_symlinks=False,
+                    resume_download=True
+                )
+                logger.info(f"Downloaded {file_name} for {model_name}")
+            except Exception as e:
+                logger.error(f"Failed to download {file_name} for {model_name}: {e}")
+                return False
+        # Always compute and store hash after download
+        if os.path.exists(file_path):
+            update_hash(file_path)
 
-        # Verify checksums
-        if verify_model_checksums(model_info, actual_model_path):
-            logger.info(f"Successfully downloaded and verified {model_name}")
-            return True
-        else:
-            logger.error(f"Checksum verification failed for {model_name}")
+    # Final verification: all essential files must exist and match hash if available
+    for file_name in essential_files:
+        file_path = get_abs_path(model_dir, file_name)
+        if not os.path.exists(file_path):
+            logger.error(f"File still missing after download: {file_name}")
             return False
-    except Exception as e:
-        logger.error(f"Error downloading {model_name}: {str(e)}")
-        return False
+        expected_hash = model_info["metadata"].get("checksums", {}).get(file_name)
+        if expected_hash:
+            actual_hash = compute_sha256(file_path)
+            if actual_hash != expected_hash:
+                logger.error(f"Hash mismatch after download for {file_name}: expected {expected_hash}, got {actual_hash}")
+                return False
+    logger.info(f"All essential files for {model_name} are now present and valid.")
+    return True
 
 def main():
     total_models = len(MODELS)

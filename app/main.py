@@ -24,7 +24,7 @@ except ImportError:
     HAS_MAGIC = False
 from sentence_transformers import SentenceTransformer
 # Nomic and Whisper imports (stubs for now)
-from colpali_engine.models import ColQwen2_5, ColQwen2_5_Processor
+# from colpali_engine.models import ColQwen2_5, ColQwen2_5_Processor
 import whisper
 from PIL import Image
 import fitz  # PyMuPDF
@@ -34,6 +34,7 @@ import huggingface_hub
 from app.edge_graph_config import EdgeGraphConfigLoader
 import numpy as np
 from functools import lru_cache
+from app.file_hash_manager import get_stored_hash, verify_or_download
 
 # Configure logging
 logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO"))
@@ -42,8 +43,8 @@ logger = logging.getLogger(__name__)
 # Set HuggingFace cache at the very top
 print(f"[RAG Startup] HF_HOME={os.getenv('HF_HOME')}")
 print(f"[RAG Startup] TRANSFORMERS_CACHE={os.getenv('TRANSFORMERS_CACHE')}")
-os.environ["HF_HOME"] = os.getenv("HF_HOME", "/home/user/RAG/models")
-os.environ["TRANSFORMERS_CACHE"] = os.getenv("HF_HOME", "/home/user/RAG/models")
+os.environ["HF_HOME"] = os.getenv("HF_HOME", "/Volumes/ssd/mac/models")
+os.environ["TRANSFORMERS_CACHE"] = os.getenv("HF_HOME", "/Volumes/ssd/mac/models")
 
 # Enable GPU acceleration
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -78,25 +79,46 @@ def get_device():
 
 @lru_cache(maxsize=1)
 def get_text_embedder():
-    """Get or create the text embedder with proper device placement."""
+    """Get or create the text embedder. Always use the local JinaAI model if present. Make errors non-fatal and log clear messages."""
     device = get_device()
-    model = SentenceTransformer('jinaai/jina-embedding-v2-base-en', device=device)
-    return model
+    hf_token = os.getenv("HUGGINGFACE_HUB_TOKEN")
+    model_dir = os.getenv("MODEL_DIR") or os.getenv("HF_HOME") or os.getenv("TRANSFORMERS_CACHE") or "/Volumes/ssd/mac/models"
+    model_name = 'jinaai/jina-embeddings-v2-base-en'
+    local_path = os.path.join(model_dir, model_name.replace('/', '__'))
+    logger.info(f"[DEBUG] get_text_embedder: model_dir={model_dir}, local_path={local_path}, exists={os.path.exists(local_path)}")
+    logger.info(f"[DEBUG] isdir={os.path.isdir(local_path)}, isfile={os.path.isfile(local_path)}, islink={os.path.islink(local_path)}")
+    if os.path.isdir(local_path):
+        logger.info(f"[DEBUG] Directory contents: {os.listdir(local_path)}")
+    if os.path.exists(local_path):
+        try:
+            expected_hash = get_stored_hash(local_path)
+            def dummy_download_func(path):
+                raise RuntimeError(f"Hash mismatch for {path}")
+            # Try to load the model
+            from sentence_transformers import SentenceTransformer
+            model = SentenceTransformer(local_path, device=device)
+            logger.info("[DEBUG] JinaAI model loaded successfully from local path.")
+            return model
+        except Exception as e:
+            logger.error(f"Failed to load local JinaAI model: {e}")
+            raise RuntimeError(f"JinaAI model could not be loaded from {local_path}: {e}")
+    else:
+        logger.error(f"Local JinaAI model directory does not exist: {local_path}")
+        raise RuntimeError(f"JinaAI model directory not found: {local_path}")
 
-@lru_cache(maxsize=1)
-def get_nomic_model():
-    """Get or create the Nomic model with proper device placement."""
-    device = get_device()
-    model = ColQwen2_5.from_pretrained("nomic-ai/nomic-embed-text-v1.5", trust_remote_code=True)
-    model = model.to(device)
-    processor = ColQwen2_5_Processor.from_pretrained("nomic-ai/nomic-embed-text-v1.5", trust_remote_code=True)
-    return model, processor
+# @lru_cache(maxsize=1)
+# def get_nomic_model():
+#     ...
+# def embed_text_nomic(chunks: list[str]) -> Optional[List[List[float]]]:
+#     ...
+# def embed_image_nomic(image_path: str) -> Optional[List[float]]:
+#     ...
 
 @lru_cache(maxsize=1)
 def get_whisper_model():
     """Get or create the Whisper model with proper device placement."""
     device = get_device()
-    model = whisper.load_model("base", download_root=os.getenv("HF_HOME", "/home/user/RAG/models"))
+    model = whisper.load_model("base", download_root=os.getenv("HF_HOME", "/Volumes/ssd/mac/models"))
     if torch.cuda.is_available():
         model = model.cuda()
     return model
@@ -194,10 +216,15 @@ async def lifespan(app: FastAPI):
     logger.info("Starting RAG System...")
     # ... (existing lifespan code) ...
     # Set HuggingFace cache to /home/user/RAG/models
-    os.environ["HF_HOME"] = "/home/user/RAG/models"
-    os.environ["TRANSFORMERS_CACHE"] = "/home/user/RAG/models"
+    os.environ["HF_HOME"] = "/Volumes/ssd/mac/models"
+    os.environ["TRANSFORMERS_CACHE"] = "/Volumes/ssd/mac/models"
     # Global edge-graph config loader (Phase 1)
     edge_graph_config_loader = EdgeGraphConfigLoader()
+    try:
+        jina_embedder = get_text_embedder()
+    except Exception as e:
+        logger.error(f"JinaAI embedder initialization failed: {e}")
+        jina_embedder = None
     yield
     # Shutdown
     logger.info("Shutting down RAG System...")
@@ -275,9 +302,15 @@ MILVUS_PORT = os.getenv("MILVUS_PORT", "19530")
 def ensure_milvus_connection():
     """Ensure Milvus connection is established."""
     try:
-        connections.get_connection()
+        if not connections.has_connection("default"):
+            logger.info("Establishing new Milvus connection...")
+            connections.connect(
+                alias="default",
+                host=os.getenv("MILVUS_HOST", "localhost"),
+                port=int(os.getenv("MILVUS_PORT", "19530"))
+            )
     except ConnectionNotExistException:
-        logger.info("Establishing new Milvus connection...")
+        logger.info("Establishing new Milvus connection (exception fallback)...")
         connections.connect(
             alias="default",
             host=os.getenv("MILVUS_HOST", "localhost"),
@@ -314,34 +347,34 @@ def normalize_embeddings(embeddings, num_chunks):
         return normalized
     return []
 
+# Utility to get current JinaAI embedding dimension
+def get_jina_embedding_dim():
+    model = get_text_embedder()
+    emb = model.encode(["test"])
+    return emb.shape[1] if len(emb.shape) == 2 else len(emb)
+
 def ensure_collection(collection_name: str):
     """Ensure Milvus collection exists with proper schema."""
     ensure_milvus_connection()
-    
     try:
         if collection_name in utility.list_collections():
             return Collection(collection_name)
-            
-        # Create collection with schema
+        embedding_dim = get_jina_embedding_dim()
         fields = [
-            {"name": "doc_id", "dtype": "VARCHAR", "is_primary": True, "max_length": 100},
-            {"name": "content", "dtype": "VARCHAR", "max_length": 65535},
-            {"name": "embedding", "dtype": "FLOAT_VECTOR", "dim": 1024},  # Fixed dimension for all embeddings
-            {"name": "metadata", "dtype": "JSON"}
+            FieldSchema(name="doc_id", dtype=DataType.VARCHAR, is_primary=True, auto_id=False, max_length=100),
+            FieldSchema(name="content", dtype=DataType.VARCHAR, max_length=65535),
+            FieldSchema(name="embedding", dtype=DataType.FLOAT_VECTOR, dim=embedding_dim),
+            FieldSchema(name="metadata", dtype=DataType.JSON)
         ]
-        
-        schema = {"fields": fields, "description": "Document embeddings collection"}
+        schema = CollectionSchema(fields=fields, description="Document embeddings collection")
         collection = Collection(name=collection_name, schema=schema)
-        
-        # Create index
         index_params = {
-            "metric_type": "L2",
+            "metric_type": "IP",
             "index_type": "IVF_FLAT",
             "params": {"nlist": 1024}
         }
         collection.create_index(field_name="embedding", index_params=index_params)
         collection.load()
-        
         return collection
     except Exception as e:
         logger.error(f"Error ensuring Milvus collection: {e}")
@@ -662,33 +695,26 @@ async def ingest_document(
 ):
     """Ingest a document and store its embeddings."""
     try:
-        # Ensure Milvus connection before starting
         ensure_milvus_connection()
-        
-        # Step 1: File Upload & Validation
         try:
-            # Validate file size (example: max 100MB)
             MAX_SIZE = 100 * 1024 * 1024
             contents = await file.read()
             if len(contents) > MAX_SIZE:
                 return JSONResponse(status_code=413, content={"status": "error", "message": "File too large"})
             if not file.filename:
                 return JSONResponse(status_code=422, content={"status": "error", "message": "Filename required"})
-            # Generate a unique doc_id (could use UUID, here use timestamp+filename)
             import uuid
             doc_id = f"{app_id}_{user_id or 'anon'}_{uuid.uuid4().hex}"
-            # Store file in Minio
+            # Store file in Minio (unchanged)
             minio_host = os.getenv("MINIO_HOST", "localhost:9000")
             minio_access_key = os.getenv("MINIO_ACCESS_KEY", "minioadmin")
             minio_secret_key = os.getenv("MINIO_SECRET_KEY", "minioadmin")
             minio_secure = os.getenv("MINIO_SECURE", "false").lower() == "true"
             bucket_name = os.getenv("MINIO_BUCKET", "rag-docs")
             client = Minio(minio_host, access_key=minio_access_key, secret_key=minio_secret_key, secure=minio_secure)
-            # Ensure bucket exists
             found = client.bucket_exists(bucket_name)
             if not found:
                 client.make_bucket(bucket_name)
-            # Store file
             minio_path = f"{app_id}/{user_id or 'anon'}/{doc_id}/{file.filename}"
             import io
             client.put_object(
@@ -699,77 +725,81 @@ async def ingest_document(
                 content_type=file.content_type or "application/octet-stream"
             )
             logger.info(f"File uploaded to Minio: {bucket_name}/{minio_path}")
-            # Step 2: Type Detection
             detected_type = detect_file_type(file.filename, contents)
             logger.info(f"Detected file type: {detected_type}")
-            # Step 3: Extraction
             extracted_content = extract_content_by_type(detected_type, contents)
             logger.info(f"Extracted content (truncated): {extracted_content[:200]}")
-            # Step 4: Chunking
-            if isinstance(extracted_content, str):
+            # --- Chunking and Embedding by Modality ---
+            chunks, embeddings = [], []
+            if detected_type.startswith("text"):
                 chunks = chunk_text_recursive(extracted_content)
                 logger.info(f"Chunked into {len(chunks)} chunks. First chunk size: {len(chunks[0].split()) if chunks else 0} words.")
-            else:
-                chunks = []
-                logger.warning("Extracted content is not a string; skipping chunking.")
-            # Step 5: Embedding (route by MIME)
-            if detected_type.startswith("text"):
-                logger.info("Routing to Jina Embeddings v3 for text embedding.")
                 embeddings = embed_text_jina(chunks)
             elif detected_type.startswith("image"):
-                logger.info("Routing to Nomic Embed Multimodal 7B for image embedding.")
+                # One embedding per image
+                chunks = [file.filename]
                 embedding = embed_image_nomic(contents)
                 if isinstance(embedding, list) and len(embedding) > 0 and isinstance(embedding[0], list):
                     embedding = embedding[0]
-                embeddings = [embedding] * len(chunks)
+                embeddings = [embedding]
             elif "pdf" in detected_type:
-                logger.info("Routing to Nomic Embed Multimodal 7B for PDF embedding.")
-                embedding = embed_pdf_nomic(contents)
+                # Chunk PDF by page
+                import fitz
+                doc = fitz.open(stream=contents, filetype="pdf")
+                for page in doc:
+                    text = page.get_text()
+                    if text.strip():
+                        chunks.append(text)
+                logger.info(f"PDF split into {len(chunks)} pages with text.")
+                embeddings = embed_text_jina(chunks) if chunks else []
+            elif detected_type.startswith("audio"):
+                # One embedding per audio file
+                chunks = [file.filename]
+                embedding = embed_audio_whisper(contents)
                 if isinstance(embedding, list) and len(embedding) > 0 and isinstance(embedding[0], list):
                     embedding = embedding[0]
-                embeddings = [embedding] * len(chunks)
-            elif detected_type.startswith("audio"):
-                logger.info("Routing to Whisper for audio embedding.")
-                embeddings = [embed_audio_whisper(contents)] * len(chunks)
+                embeddings = [embedding]
             elif detected_type in ("text/csv", "application/vnd.ms-excel", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"):
-                logger.info("Detected CSV/Excel. Extracting text and embedding as text.")
-                # For CSV/Excel, treat as text for embedding
+                # Treat as text
+                chunks = chunk_text_recursive(extracted_content)
                 embeddings = embed_text_jina(chunks)
             elif detected_type in ("application/msword", "application/vnd.openxmlformats-officedocument.wordprocessingml.document"):
-                logger.info("Detected Word doc. Extracting text and embedding as text.")
+                chunks = chunk_text_recursive(extracted_content)
                 embeddings = embed_text_jina(chunks)
             else:
                 logger.warning(f"Unsupported MIME type for embedding: {detected_type}")
-                embeddings = []
-            # Normalize embeddings for Milvus
-            embeddings = normalize_embeddings(embeddings, len(chunks))
-            # Pad all embeddings to 1024-dim
+                chunks, embeddings = [], []
+            # --- Normalize and Check Embeddings ---
+            def flatten_embedding(e):
+                if isinstance(e, np.ndarray):
+                    return e.flatten().tolist()
+                if isinstance(e, list) and len(e) > 0 and isinstance(e[0], (list, np.ndarray)):
+                    return list(np.array(e).flatten())
+                return list(e)
+            embeddings = [flatten_embedding(e) for e in embeddings]
+            embedding_dim = get_jina_embedding_dim()
+            # Pad/truncate to embedding_dim
             for i in range(len(embeddings)):
-                if len(embeddings[i]) < 1024:
-                    embeddings[i] = embeddings[i] + [0.0] * (1024 - len(embeddings[i]))
-                elif len(embeddings[i]) > 1024:
-                    embeddings[i] = embeddings[i][:1024]
-            if embeddings:
-                logger.debug(f"First embedding: {embeddings[0][:10]} (type: {type(embeddings[0])}, length: {len(embeddings[0]) if isinstance(embeddings[0], (list, tuple)) else 'N/A'})")
-            logger.info(f"Generated {len(embeddings)} embeddings.")
-            # Store embeddings in Milvus
+                if len(embeddings[i]) < embedding_dim:
+                    embeddings[i] = embeddings[i] + [0.0] * (embedding_dim - len(embeddings[i]))
+                elif len(embeddings[i]) > embedding_dim:
+                    embeddings[i] = embeddings[i][:embedding_dim]
+            # --- Column-Oriented Insert for Milvus ---
             if len(embeddings) > 0 and len(chunks) == len(embeddings):
                 collection_name = f"{app_id}_{user_id or 'anon'}"
-                collection = Collection(collection_name)
-                collection.load()
-                # Prepare data for Milvus insert (row-oriented, list of dicts)
-                insert_data = [
-                    {
-                        "doc_id": str(f"{doc_id}_chunk{i}"),
-                        "embedding": list(map(float, embeddings[i])),
-                        "content": str(chunks[i]),
-                        "metadata": {"source_doc_id": doc_id, "chunk_index": i, "minio_path": minio_path}
-                    }
-                    for i in range(len(chunks))
-                ]
-                # Insert into Milvus
+                collection = ensure_collection(collection_name)
+                doc_ids = [f"{doc_id}_chunk{i}" for i in range(len(chunks))]
+                contents_col = [str(c) for c in chunks]
+                embeddings_col = [list(map(float, e)) for e in embeddings]
+                metadata_col = [{"source_doc_id": doc_id, "chunk_index": i, "minio_path": minio_path} for i in range(len(chunks))]
+                # Type/shape checks
+                assert len(doc_ids) == len(contents_col) == len(embeddings_col) == len(metadata_col), "Column lengths must match"
+                for e in embeddings_col:
+                    assert isinstance(e, list) and all(isinstance(x, float) for x in e), "Embeddings must be flat float lists"
+                    assert len(e) == embedding_dim, f"Embedding must be {embedding_dim}-dim"
+                insert_data = [doc_ids, contents_col, embeddings_col, metadata_col]
                 mr = collection.insert(insert_data)
-                logger.info(f"Inserted {len(chunks)} docs into Milvus collection {collection_name}. Insert result: {mr}")
+                logger.info(f"Inserted {len(doc_ids)} docs into Milvus collection {collection_name}. Insert result: {mr}")
             else:
                 logger.warning("No embeddings or chunk/embedding count mismatch; skipping Milvus insert.")
             return IngestResponse(doc_id=doc_id, status="embedded", message=f"File uploaded. Type: {detected_type}. Embedding complete. {len(embeddings)} chunks.")
@@ -794,115 +824,137 @@ async def query_vector(
 ):
     """
     Vector search endpoint for multimodal queries (text, image, audio, PDF, video) with flexible metadata/temporal filtering.
-    Accepts either JSON (text, legacy VectorQueryRequest) or multipart/form-data (file).
+    Accepts either JSON (text, legacy VectorQueryRequest), multipart/form-data (file), or plain form fields.
     """
-    # Legacy JSON body (VectorQueryRequest) for backwards compatibility
-    if legacy_body is not None:
-        try:
-            query_embedding = jina_embedder.encode([legacy_body.query])[0]
-        except Exception as e:
-            logger.error(f"Embedding failed: {e}")
-            return VectorQueryResponse(results=[])
-        app_id = legacy_body.app_id
-        user_id = legacy_body.user_id
-        filters = legacy_body.filters
-        top_k = legacy_body.top_k
-    # If JSON, parse as before
-    elif request.headers.get("content-type", "").startswith("application/json"):
-        body = await request.json()
-        query = body.get("query")
-        app_id = body.get("app_id")
-        user_id = body.get("user_id")
-        filters = body.get("filters")
-        top_k = body.get("top_k", 10)
-        if not query or not app_id or not user_id:
-            return VectorQueryResponse(results=[])
-        try:
-            query_embedding = jina_embedder.encode([query])[0]
-        except Exception as e:
-            logger.error(f"Embedding failed: {e}")
-            return VectorQueryResponse(results=[])
-    # If multipart/form-data, handle file
-    elif file is not None:
-        if not app_id or not user_id:
-            return VectorQueryResponse(results=[])
-        contents = await file.read()
-        detected_type = detect_file_type(file.filename, contents)
-        logger.info(f"Detected file type: {detected_type}")
-        # Route to embedding/model pipeline
-        if detected_type.startswith("text"):
-            text = extract_text(contents)
-            query_embedding = jina_embedder.encode([text])[0]
-        elif detected_type.startswith("image"):
-            query_embedding = embed_image_nomic(contents)[0]
-        elif "pdf" in detected_type:
-            query_embedding = embed_pdf_nomic(contents)[0]
-        elif detected_type.startswith("audio"):
-            query_embedding = embed_audio_whisper(contents)[0]
-        elif detected_type.startswith("video"):
-            # TODO: Implement video embedding (extract key frames, use image embedding)
-            logger.warning("Video embedding not implemented; returning placeholder embedding.")
-            query_embedding = [0.0]*1024
-        else:
-            logger.warning(f"Unsupported MIME type for embedding: {detected_type}")
-            return VectorQueryResponse(results=[])
-        # Parse filters if present
-        if filters:
-            import json
-            try:
-                filters = json.loads(filters)
-            except Exception:
-                filters = None
-        top_k = 10
-    else:
-        logger.warning("No valid input provided to /query/vector.")
-        return VectorQueryResponse(results=[])
-
-    # 2. Milvus search (scoped to app_id/user_id)
-    collection_name = f"{app_id}_{user_id}"  # Example naming
+    import traceback
     try:
-        ensure_collection(collection_name)
-        collection = Collection(collection_name)
-        collection.load()
-        # Build filter expression (Milvus supports limited filtering)
-        exprs = []
-        if filters:
-            for k, v in filters.items():
-                if k in ("created_after", "created_before"):
-                    # Assume metadata.created_at is ISO string
-                    if k == "created_after":
-                        exprs.append(f"metadata[\"created_at\"] >= '{v}'")
-                    else:
-                        exprs.append(f"metadata[\"created_at\"] <= '{v}'")
-                elif isinstance(v, list):
-                    exprs.append(f"metadata[\"{k}\"] in {v}")
+        # Legacy JSON body (VectorQueryRequest) for backwards compatibility
+        if legacy_body is not None:
+            try:
+                logger.info(f"Legacy body received: {legacy_body}")
+                query_embedding = jina_embedder.encode([legacy_body.query])[0]
+            except Exception as e:
+                logger.error(f"Embedding failed: {e}\n{traceback.format_exc()}")
+                return JSONResponse(status_code=500, content={"status": "error", "message": f"Embedding failed: {e}"})
+            app_id = legacy_body.app_id
+            user_id = legacy_body.user_id
+            filters = legacy_body.filters
+            top_k = legacy_body.top_k
+        # If JSON, parse as before
+        elif request.headers.get("content-type", "").startswith("application/json"):
+            body = await request.json()
+            logger.info(f"JSON body received: {body}")
+            query = body.get("query")
+            app_id = body.get("app_id")
+            user_id = body.get("user_id")
+            filters = body.get("filters")
+            top_k = body.get("top_k", 10)
+            if not query or not app_id or not user_id:
+                logger.warning("Missing query/app_id/user_id in JSON body")
+                return JSONResponse(status_code=422, content={"status": "error", "message": "Missing query/app_id/user_id"})
+            try:
+                query_embedding = jina_embedder.encode([query])[0]
+            except Exception as e:
+                logger.error(f"Embedding failed: {e}\n{traceback.format_exc()}")
+                return JSONResponse(status_code=500, content={"status": "error", "message": f"Embedding failed: {e}"})
+        # If multipart/form-data, handle file
+        elif file is not None:
+            if not app_id or not user_id:
+                logger.warning("Missing app_id/user_id in form-data")
+                return JSONResponse(status_code=422, content={"status": "error", "message": "Missing app_id/user_id"})
+            contents = await file.read()
+            detected_type = detect_file_type(file.filename, contents)
+            logger.info(f"Detected file type: {detected_type}")
+            # Route to embedding/model pipeline
+            try:
+                if detected_type.startswith("text"):
+                    text = extract_text(contents)
+                    query_embedding = jina_embedder.encode([text])[0]
+                elif detected_type.startswith("image"):
+                    query_embedding = embed_image_nomic(contents)[0]
+                elif "pdf" in detected_type:
+                    query_embedding = embed_pdf_nomic(contents)[0]
+                elif detected_type.startswith("audio"):
+                    query_embedding = embed_audio_whisper(contents)[0]
+                elif detected_type.startswith("video"):
+                    logger.warning("Video embedding not implemented; returning placeholder embedding.")
+                    query_embedding = [0.0]*1024
                 else:
-                    exprs.append(f"metadata[\"{k}\"] == '{v}'")
-        expr = " and ".join(exprs) if exprs else None
-        logger.info(f"Milvus search expr: {expr}")
-        # Search in Milvus
-        search_params = {"metric_type": "IP", "params": {"nprobe": 16}}
-        results = collection.search(
-            data=[query_embedding],
-            anns_field="embedding",
-            param=search_params,
-            limit=top_k,
-            expr=expr
-        )
-        # Format results
-        formatted = []
-        for hit in results[0]:
-            entity = hit.entity
-            formatted.append(VectorQueryResult(
-                doc_id=entity.get("doc_id", ""),
-                score=hit.score,
-                content=entity.get("content", ""),
-                metadata=entity.get("metadata", {})
-            ))
-        return VectorQueryResponse(results=formatted)
+                    logger.warning(f"Unsupported MIME type for embedding: {detected_type}")
+                    return JSONResponse(status_code=415, content={"status": "error", "message": f"Unsupported MIME type: {detected_type}"})
+            except Exception as e:
+                logger.error(f"Embedding failed for file: {e}\n{traceback.format_exc()}")
+                return JSONResponse(status_code=500, content={"status": "error", "message": f"Embedding failed for file: {e}"})
+            # Parse filters if present
+            if filters:
+                import json
+                try:
+                    filters = json.loads(filters)
+                except Exception:
+                    filters = None
+            top_k = 10
+        # Support plain form-data queries (query, app_id, user_id as form fields)
+        elif query and app_id and user_id:
+            logger.info(f"Plain form-data query received: query={query}, app_id={app_id}, user_id={user_id}")
+            try:
+                query_embedding = jina_embedder.encode([query])[0]
+            except Exception as e:
+                logger.error(f"Embedding failed: {e}\n{traceback.format_exc()}")
+                return JSONResponse(status_code=500, content={"status": "error", "message": f"Embedding failed: {e}"})
+            top_k = 10
+        else:
+            logger.warning("No valid input provided to /query/vector.")
+            return JSONResponse(status_code=422, content={"status": "error", "message": "No valid input provided"})
+        # 2. Milvus search (scoped to app_id/user_id)
+        collection_name = f"{app_id}_{user_id}"  # Example naming
+        try:
+            ensure_collection(collection_name)
+            collection = Collection(collection_name)
+            collection.load()
+            # Build filter expression (Milvus supports limited filtering)
+            exprs = []
+            if filters:
+                for k, v in filters.items():
+                    if k in ("created_after", "created_before"):
+                        # Assume metadata.created_at is ISO string
+                        if k == "created_after":
+                            exprs.append(f"metadata[\"created_at\"] >= '{v}'")
+                        else:
+                            exprs.append(f"metadata[\"created_at\"] <= '{v}'")
+                    elif isinstance(v, list):
+                        exprs.append(f"metadata[\"{k}\"] in {v}")
+                    else:
+                        exprs.append(f"metadata[\"{k}\"] == '{v}'")
+            expr = " and ".join(exprs) if exprs else None
+            logger.info(f"Milvus search expr: {expr}")
+            # Search in Milvus (use metric_type 'IP' to match index)
+            search_params = {"metric_type": "IP", "params": {"nprobe": 16}}
+            results = collection.search(
+                data=[query_embedding],
+                anns_field="embedding",
+                param=search_params,
+                limit=top_k,
+                expr=expr,
+                output_fields=["doc_id", "content", "metadata"]
+            )
+            # Format results
+            formatted = []
+            for hit in results[0]:
+                entity = hit.entity
+                formatted.append(VectorQueryResult(
+                    doc_id=entity.get("doc_id", ""),
+                    score=hit.score,
+                    content=entity.get("content", ""),
+                    metadata=entity.get("metadata", {})
+                ))
+            logger.info(f"Query returned {len(formatted)} results.")
+            return VectorQueryResponse(results=formatted)
+        except Exception as e:
+            logger.error(f"Milvus search failed: {e}\n{traceback.format_exc()}")
+            return JSONResponse(status_code=500, content={"status": "error", "message": f"Milvus search failed: {e}"})
     except Exception as e:
-        logger.error(f"Milvus search failed: {e}")
-        return VectorQueryResponse(results=[])
+        logger.error(f"/query/vector endpoint failed: {e}\n{traceback.format_exc()}")
+        return JSONResponse(status_code=500, content={"status": "error", "message": f"/query/vector endpoint failed: {e}"})
 
 @app.post("/query/graph", response_model=GraphQueryResponse)
 async def query_graph(
@@ -1011,7 +1063,8 @@ async def query_graph(
             anns_field="embedding",
             param=search_params,
             limit=10,
-            expr=expr
+            expr=expr,
+            output_fields=["doc_id", "content", "metadata"]
         )
         formatted = []
         for hit in results[0]:
@@ -1099,3 +1152,175 @@ async def query_graph(
 #
 # All models should be downloaded to the directory specified by the environment variable (e.g., HF_HOME or TRANSFORMERS_CACHE)
 # --- 
+
+# Ensure jina_embedder is always initialized
+try:
+    jina_embedder = get_text_embedder()
+except Exception as e:
+    logger.error(f"JinaAI embedder initialization failed: {e}")
+    jina_embedder = None
+
+def get_edge_graph_config():
+    return edge_graph_config_loader.get_config()
+
+@app.get("/edge-graph/config")
+def get_edge_graph_config_endpoint(config: dict = Depends(get_edge_graph_config)):
+    """Return the current edge-graph config (for debugging/validation)."""
+    return config
+
+@app.get("/health", response_model=HealthResponse)
+async def health_check():
+    services = {}
+    # Milvus health check
+    services["milvus"] = await check_milvus()
+    # Minio health check
+    services["minio"] = await check_minio()
+    # Postgres health check
+    services["postgres"] = await check_postgres()
+    # Neo4j health check
+    services["neo4j"] = await check_neo4j()
+    return HealthResponse(
+        status="ok" if all(v == "ok" for v in services.values()) else "degraded",
+        services=services,
+        timestamp=datetime.utcnow().isoformat()
+    )
+
+@app.get("/health/details")
+async def health_details():
+    milvus = await check_milvus_detailed()
+    minio = await check_minio_detailed()
+    postgres = await check_postgres_detailed()
+    neo4j = await check_neo4j_detailed()
+    return {
+        "milvus": milvus,
+        "minio": minio,
+        "postgres": postgres,
+        "neo4j": neo4j,
+        "timestamp": datetime.utcnow().isoformat()
+    }
+
+@app.post("/docs/ingest", response_model=IngestResponse)
+async def ingest_document(
+    file: UploadFile = File(...),
+    app_id: str = Form(...),
+    user_id: Optional[str] = Form(None),
+    metadata: Optional[str] = Form(None)
+):
+    """Ingest a document and store its embeddings."""
+    try:
+        ensure_milvus_connection()
+        try:
+            MAX_SIZE = 100 * 1024 * 1024
+            contents = await file.read()
+            if len(contents) > MAX_SIZE:
+                return JSONResponse(status_code=413, content={"status": "error", "message": "File too large"})
+            if not file.filename:
+                return JSONResponse(status_code=422, content={"status": "error", "message": "Filename required"})
+            import uuid
+            doc_id = f"{app_id}_{user_id or 'anon'}_{uuid.uuid4().hex}"
+            # Store file in Minio (unchanged)
+            minio_host = os.getenv("MINIO_HOST", "localhost:9000")
+            minio_access_key = os.getenv("MINIO_ACCESS_KEY", "minioadmin")
+            minio_secret_key = os.getenv("MINIO_SECRET_KEY", "minioadmin")
+            minio_secure = os.getenv("MINIO_SECURE", "false").lower() == "true"
+            bucket_name = os.getenv("MINIO_BUCKET", "rag-docs")
+            client = Minio(minio_host, access_key=minio_access_key, secret_key=minio_secret_key, secure=minio_secure)
+            found = client.bucket_exists(bucket_name)
+            if not found:
+                client.make_bucket(bucket_name)
+            minio_path = f"{app_id}/{user_id or 'anon'}/{doc_id}/{file.filename}"
+            import io
+            client.put_object(
+                bucket_name,
+                minio_path,
+                io.BytesIO(contents),
+                length=len(contents),
+                content_type=file.content_type or "application/octet-stream"
+            )
+            logger.info(f"File uploaded to Minio: {bucket_name}/{minio_path}")
+            detected_type = detect_file_type(file.filename, contents)
+            logger.info(f"Detected file type: {detected_type}")
+            extracted_content = extract_content_by_type(detected_type, contents)
+            logger.info(f"Extracted content (truncated): {extracted_content[:200]}")
+            # --- Chunking and Embedding by Modality ---
+            chunks, embeddings = [], []
+            if detected_type.startswith("text"):
+                chunks = chunk_text_recursive(extracted_content)
+                logger.info(f"Chunked into {len(chunks)} chunks. First chunk size: {len(chunks[0].split()) if chunks else 0} words.")
+                embeddings = embed_text_jina(chunks)
+            elif detected_type.startswith("image"):
+                # One embedding per image
+                chunks = [file.filename]
+                embedding = embed_image_nomic(contents)
+                if isinstance(embedding, list) and len(embedding) > 0 and isinstance(embedding[0], list):
+                    embedding = embedding[0]
+                embeddings = [embedding]
+            elif "pdf" in detected_type:
+                # Chunk PDF by page
+                import fitz
+                doc = fitz.open(stream=contents, filetype="pdf")
+                for page in doc:
+                    text = page.get_text()
+                    if text.strip():
+                        chunks.append(text)
+                logger.info(f"PDF split into {len(chunks)} pages with text.")
+                embeddings = embed_text_jina(chunks) if chunks else []
+            elif detected_type.startswith("audio"):
+                # One embedding per audio file
+                chunks = [file.filename]
+                embedding = embed_audio_whisper(contents)
+                if isinstance(embedding, list) and len(embedding) > 0 and isinstance(embedding[0], list):
+                    embedding = embedding[0]
+                embeddings = [embedding]
+            elif detected_type in ("text/csv", "application/vnd.ms-excel", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"):
+                # Treat as text
+                chunks = chunk_text_recursive(extracted_content)
+                embeddings = embed_text_jina(chunks)
+            elif detected_type in ("application/msword", "application/vnd.openxmlformats-officedocument.wordprocessingml.document"):
+                chunks = chunk_text_recursive(extracted_content)
+                embeddings = embed_text_jina(chunks)
+            else:
+                logger.warning(f"Unsupported MIME type for embedding: {detected_type}")
+                chunks, embeddings = [], []
+            # --- Normalize and Check Embeddings ---
+            def flatten_embedding(e):
+                if isinstance(e, np.ndarray):
+                    return e.flatten().tolist()
+                if isinstance(e, list) and len(e) > 0 and isinstance(e[0], (list, np.ndarray)):
+                    return list(np.array(e).flatten())
+                return list(e)
+            embeddings = [flatten_embedding(e) for e in embeddings]
+            embedding_dim = get_jina_embedding_dim()
+            # Pad/truncate to embedding_dim
+            for i in range(len(embeddings)):
+                if len(embeddings[i]) < embedding_dim:
+                    embeddings[i] = embeddings[i] + [0.0] * (embedding_dim - len(embeddings[i]))
+                elif len(embeddings[i]) > embedding_dim:
+                    embeddings[i] = embeddings[i][:embedding_dim]
+            # --- Column-Oriented Insert for Milvus ---
+            if len(embeddings) > 0 and len(chunks) == len(embeddings):
+                collection_name = f"{app_id}_{user_id or 'anon'}"
+                collection = ensure_collection(collection_name)
+                doc_ids = [f"{doc_id}_chunk{i}" for i in range(len(chunks))]
+                contents_col = [str(c) for c in chunks]
+                embeddings_col = [list(map(float, e)) for e in embeddings]
+                metadata_col = [{"source_doc_id": doc_id, "chunk_index": i, "minio_path": minio_path} for i in range(len(chunks))]
+                # Type/shape checks
+                assert len(doc_ids) == len(contents_col) == len(embeddings_col) == len(metadata_col), "Column lengths must match"
+                for e in embeddings_col:
+                    assert isinstance(e, list) and all(isinstance(x, float) for x in e), "Embeddings must be flat float lists"
+                    assert len(e) == embedding_dim, f"Embedding must be {embedding_dim}-dim"
+                insert_data = [doc_ids, contents_col, embeddings_col, metadata_col]
+                mr = collection.insert(insert_data)
+                logger.info(f"Inserted {len(doc_ids)} docs into Milvus collection {collection_name}. Insert result: {mr}")
+            else:
+                logger.warning("No embeddings or chunk/embedding count mismatch; skipping Milvus insert.")
+            return IngestResponse(doc_id=doc_id, status="embedded", message=f"File uploaded. Type: {detected_type}. Embedding complete. {len(embeddings)} chunks.")
+        except Exception as e:
+            tb = traceback.format_exc()
+            logger.error(f"Ingestion failed: {e}\n{tb}")
+            return JSONResponse(status_code=500, content={"status": "error", "message": str(e)})
+    except Exception as e:
+        tb = traceback.format_exc()
+        logger.error(f"Ingestion failed: {e}\n{tb}")
+        return JSONResponse(status_code=500, content={"status": "error", "message": str(e)}) 

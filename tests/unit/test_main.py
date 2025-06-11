@@ -41,14 +41,29 @@ class TestExtraction:
 
 client = TestClient(app)
 
-@patch("app.main.jina_embedder")
-@patch("pymilvus.Collection")
-def test_query_vector_basic(mock_collection, mock_embedder):
+# Universal embedding/model patch for all relevant tests
+universal_patches = [
+    patch("app.main.jina_embedder"),
+    patch("app.main.embed_image_nomic", return_value=[[0.1]*768]),
+    patch("app.main.embed_pdf_nomic", return_value=[[0.3]*768]),
+    patch("app.main.embed_audio_whisper", return_value=[[0.2]*768]),
+]
+
+def apply_universal_patches(test_func):
+    for p in reversed(universal_patches):
+        test_func = p(test_func)
+    return test_func
+
+@apply_universal_patches
+@patch("app.main.Collection")
+def test_query_vector_basic(mock_collection, mock_embed_audio, mock_embed_pdf, mock_embed_image, mock_embedder):
     mock_embedder.encode.return_value = [[0.1]*768]
     mock_hit = MagicMock()
     mock_hit.entity.get.side_effect = lambda k, d=None: {"doc_id": "doc1", "content": "foo", "metadata": {"created_at": "2024-06-10"}}.get(k, d)
     mock_hit.score = 0.99
-    mock_collection.return_value.search.return_value = [[mock_hit]]
+    def search_side_effect(*args, **kwargs):
+        return [[mock_hit]]
+    mock_collection.return_value.search.side_effect = search_side_effect
     req = {
         "query": "test",
         "app_id": "app1",
@@ -63,77 +78,91 @@ def test_query_vector_basic(mock_collection, mock_embedder):
     assert data["results"][0]["doc_id"] == "doc1"
     assert data["results"][0]["metadata"]["created_at"] == "2024-06-10"
 
-@patch("app.main.jina_embedder")
-@patch("pymilvus.Collection")
-def test_query_vector_error_handling(mock_collection, mock_embedder):
+@apply_universal_patches
+@patch("app.main.Collection")
+def test_query_vector_error_handling(mock_collection, mock_embed_audio, mock_embed_pdf, mock_embed_image, mock_embedder):
     mock_embedder.encode.side_effect = Exception("fail")
     req = {"query": "fail", "app_id": "a", "user_id": "u"}
     resp = client.post("/query/vector", json=req)
-    assert resp.status_code == 200
-    assert resp.json()["results"] == [] 
+    assert resp.status_code == 500
+    assert resp.json()["status"] == "error"
 
+@patch("app.main.embed_image_nomic", return_value=[[0.1]*768])
 @patch("app.main.jina_embedder")
-@patch("pymilvus.Collection")
-def test_query_vector_image(mock_collection, mock_embedder):
+@patch("app.main.Collection")
+def test_query_vector_image(mock_collection, mock_embedder, mock_embed_image):
     mock_embedder.encode.return_value = [[0.1]*768]
     mock_hit = MagicMock()
     mock_hit.entity.get.side_effect = lambda k, d=None: {"doc_id": "docimg", "content": "img", "metadata": {}}.get(k, d)
     mock_hit.score = 0.88
-    mock_collection.return_value.search.return_value = [[mock_hit]]
+    def search_side_effect(*args, **kwargs):
+        return [[mock_hit]]
+    mock_collection.return_value.search.side_effect = search_side_effect
     with open("samples/sample.jpg", "rb") as f:
         resp = client.post("/query/vector", files={"file": ("sample.jpg", f, "image/jpeg")}, data={"app_id": "app1", "user_id": "user1"})
     assert resp.status_code == 200
     data = resp.json()
     assert "results" in data
 
-@patch("app.main.embed_audio_whisper")
-@patch("pymilvus.Collection")
+@patch("app.main.embed_audio_whisper", return_value=[[0.2]*768])
+@patch("app.main.Collection")
 def test_query_vector_audio(mock_collection, mock_embed_audio):
-    mock_embed_audio.return_value = [[0.2]*768]
     mock_hit = MagicMock()
     mock_hit.entity.get.side_effect = lambda k, d=None: {"doc_id": "docaud", "content": "aud", "metadata": {}}.get(k, d)
     mock_hit.score = 0.77
-    mock_collection.return_value.search.return_value = [[mock_hit]]
+    def search_side_effect(*args, **kwargs):
+        return [[mock_hit]]
+    mock_collection.return_value.search.side_effect = search_side_effect
     with open("samples/sample.mp3", "rb") as f:
         resp = client.post("/query/vector", files={"file": ("sample.mp3", f, "audio/mpeg")}, data={"app_id": "app1", "user_id": "user1"})
     assert resp.status_code == 200
     data = resp.json()
     assert "results" in data
 
-@patch("app.main.embed_pdf_nomic")
-@patch("pymilvus.Collection")
+@patch("app.main.embed_pdf_nomic", return_value=[[0.3]*768])
+@patch("app.main.Collection")
 def test_query_vector_pdf(mock_collection, mock_embed_pdf):
-    mock_embed_pdf.return_value = [[0.3]*768]
     mock_hit = MagicMock()
     mock_hit.entity.get.side_effect = lambda k, d=None: {"doc_id": "docpdf", "content": "pdf", "metadata": {}}.get(k, d)
     mock_hit.score = 0.66
-    mock_collection.return_value.search.return_value = [[mock_hit]]
+    def search_side_effect(*args, **kwargs):
+        return [[mock_hit]]
+    mock_collection.return_value.search.side_effect = search_side_effect
     with open("samples/sample.pdf", "rb") as f:
         resp = client.post("/query/vector", files={"file": ("sample.pdf", f, "application/pdf")}, data={"app_id": "app1", "user_id": "user1"})
     assert resp.status_code == 200
     data = resp.json()
     assert "results" in data
 
-@patch("pymilvus.Collection")
-def test_query_vector_video_placeholder(mock_collection):
+@patch("app.main.embed_image_nomic", return_value=[[0.1]*768])
+@patch("app.main.embed_audio_whisper", return_value=[[0.2]*768])
+@patch("app.main.embed_pdf_nomic", return_value=[[0.3]*768])
+@patch("app.main.jina_embedder")
+@patch("app.main.Collection")
+def test_query_vector_video_placeholder(mock_collection, mock_embedder, mock_embed_pdf, mock_embed_audio, mock_embed_image):
+    mock_embedder.encode.return_value = [[0.1]*768]
     mock_hit = MagicMock()
     mock_hit.entity.get.side_effect = lambda k, d=None: {"doc_id": "docvid", "content": "vid", "metadata": {}}.get(k, d)
     mock_hit.score = 0.55
-    mock_collection.return_value.search.return_value = [[mock_hit]]
+    def search_side_effect(*args, **kwargs):
+        return [[mock_hit]]
+    mock_collection.return_value.search.side_effect = search_side_effect
     with open("samples/sample.mp4", "rb") as f:
         resp = client.post("/query/vector", files={"file": ("sample.mp4", f, "video/mp4")}, data={"app_id": "app1", "user_id": "user1"})
     assert resp.status_code == 200
     data = resp.json()
     assert "results" in data
 
-@patch("app.main.jina_embedder")
-@patch("pymilvus.Collection")
-def test_query_vector_legacy_json(mock_collection, mock_embedder):
+@apply_universal_patches
+@patch("app.main.Collection")
+def test_query_vector_legacy_json(mock_collection, mock_embed_audio, mock_embed_pdf, mock_embed_image, mock_embedder):
     mock_embedder.encode.return_value = [[0.1]*768]
     mock_hit = MagicMock()
     mock_hit.entity.get.side_effect = lambda k, d=None: {"doc_id": "doc1", "content": "foo", "metadata": {"created_at": "2024-06-10"}}.get(k, d)
     mock_hit.score = 0.99
-    mock_collection.return_value.search.return_value = [[mock_hit]]
+    def search_side_effect(*args, **kwargs):
+        return [[mock_hit]]
+    mock_collection.return_value.search.side_effect = search_side_effect
     req = {
         "query": "test",
         "app_id": "app1",
@@ -146,16 +175,20 @@ def test_query_vector_legacy_json(mock_collection, mock_embedder):
     data = resp.json()
     assert len(data["results"]) == 1
     assert data["results"][0]["doc_id"] == "doc1"
-    assert data["results"][0]["metadata"]["created_at"] == "2024-06-10" 
+    assert data["results"][0]["metadata"]["created_at"] == "2024-06-10"
 
+@apply_universal_patches
 @patch("app.main.GraphDatabase")
-@patch("pymilvus.Collection")
-def test_query_graph_context_expansion(mock_collection, mock_neo4j):
+@patch("app.main.Collection")
+def test_query_graph_context_expansion(mock_collection, mock_neo4j, mock_embed_audio, mock_embed_pdf, mock_embed_image, mock_embedder):
+    mock_embedder.encode.return_value = [[0.1]*768]
     # Mock Milvus search result
     mock_hit = MagicMock()
     mock_hit.entity.get.side_effect = lambda k, d=None: {"doc_id": "doc123", "content": "chunk", "metadata": {}}.get(k, d)
     mock_hit.score = 0.99
-    mock_collection.return_value.search.return_value = [[mock_hit]]
+    def search_side_effect(*args, **kwargs):
+        return [[mock_hit]]
+    mock_collection.return_value.search.side_effect = search_side_effect
     # Mock Neo4j session and result
     mock_session = MagicMock()
     mock_neo4j.driver.return_value.session.return_value.__enter__.return_value = mock_session
@@ -178,14 +211,18 @@ def test_query_graph_context_expansion(mock_collection, mock_neo4j):
     assert data["results"][0]["graph_context"]["nodes"][0]["id"] == "doc123"
     assert data["results"][0]["graph_context"]["edges"][0]["source"] == "doc123"
 
+@apply_universal_patches
 @patch("app.main.GraphDatabase")
-@patch("pymilvus.Collection")
-def test_query_graph_semantic_expansion(mock_collection, mock_neo4j):
+@patch("app.main.Collection")
+def test_query_graph_semantic_expansion(mock_collection, mock_neo4j, mock_embed_audio, mock_embed_pdf, mock_embed_image, mock_embedder):
+    mock_embedder.encode.return_value = [[0.1]*768]
     # Similar to above, but with type="semantic"
     mock_hit = MagicMock()
     mock_hit.entity.get.side_effect = lambda k, d=None: {"doc_id": "doc789", "content": "sem", "metadata": {}}.get(k, d)
     mock_hit.score = 0.88
-    mock_collection.return_value.search.return_value = [[mock_hit]]
+    def search_side_effect(*args, **kwargs):
+        return [[mock_hit]]
+    mock_collection.return_value.search.side_effect = search_side_effect
     mock_session = MagicMock()
     mock_neo4j.driver.return_value.session.return_value.__enter__.return_value = mock_session
     mock_node = {"doc_id": "doc789", "label": "Semantic Chunk", "type": "semantic"}
@@ -206,14 +243,18 @@ def test_query_graph_semantic_expansion(mock_collection, mock_neo4j):
     assert data["results"][0]["graph_context"]["nodes"][0]["type"] == "semantic"
     assert data["results"][0]["graph_context"]["edges"][0]["type"] == "semantic"
 
+@apply_universal_patches
 @patch("app.main.GraphDatabase")
-@patch("pymilvus.Collection")
-def test_query_graph_neo4j_error(mock_collection, mock_neo4j):
+@patch("app.main.Collection")
+def test_query_graph_neo4j_error(mock_collection, mock_neo4j, mock_embed_audio, mock_embed_pdf, mock_embed_image, mock_embedder):
+    mock_embedder.encode.return_value = [[0.1]*768]
     # Simulate Neo4j error
     mock_hit = MagicMock()
     mock_hit.entity.get.side_effect = lambda k, d=None: {"doc_id": "docerr", "content": "err", "metadata": {}}.get(k, d)
     mock_hit.score = 0.77
-    mock_collection.return_value.search.return_value = [[mock_hit]]
+    def search_side_effect(*args, **kwargs):
+        return [[mock_hit]]
+    mock_collection.return_value.search.side_effect = search_side_effect
     mock_neo4j.driver.return_value.session.side_effect = Exception("Neo4j down")
     req = {
         "query": "fail",

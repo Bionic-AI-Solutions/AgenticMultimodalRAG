@@ -1,0 +1,3 @@
+app_overrides: {}
+default_edge_types:
+  b: 2.0
