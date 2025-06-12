@@ -17,10 +17,43 @@ This document outlines the phased, testable implementation plan for the Edge-Gra
 - Unit tests: Weighted expansion logic, override handling.
 - Integration tests: End-to-end weighted expansion with overrides.
 
-### Phase 3: Post-Expansion Filtering
-- Add post-expansion filtering based on edge types, weights, and metadata.
-- Unit tests: Filtering logic.
-- Integration tests: Filtered expansion results.
+### Phase 3: Post-Expansion Filtering, Traceability, and API Alignment
+
+### 1. Requirements
+- Support filtering of expanded graph results by:
+  - Edge type (e.g., only `context_of`, `temporal_neighbor`)
+  - Edge weight (e.g., only edges with weight > threshold)
+  - Node/edge metadata (e.g., time, label, custom fields)
+- Ensure traceability: every result should include provenance (how/why it was expanded, edge types/weights used).
+- API must align with integration/unit test expectations (edge types, explainability, config-driven behavior).
+
+### 2. Implementation Steps
+1. **API Update**
+   - Add filter parameters to `/query/graph` (edge types, min weight, metadata fields).
+   - Update OpenAPI docs and usage examples.
+2. **Graph Expansion Logic**
+   - Update graph expansion code to apply filters after expansion.
+   - Ensure only allowed edge types/weights are included in results.
+   - Add traceability fields to each node/edge in the response.
+3. **Config & Hot Reload**
+   - Allow per-app and global config for allowed edge types/weights.
+   - Ensure config reload works for new filter options.
+4. **Testing**
+   - Add/expand unit tests for filtering, traceability, and config overrides.
+   - Add/expand integration tests for all new API behaviors.
+5. **Docs & Usage**
+   - Update usage.md and API docs for new filter/traceability features.
+
+### 3. Technical Notes
+- Filtering should be efficient (prefer Cypher query filters in Neo4j, fallback to Python post-processing if needed).
+- Traceability: include `expanded_by`, `edge_type`, `weight`, and config source in each result.
+- Backward compatibility: maintain support for existing API clients.
+
+### 4. Deliverables
+- Updated API endpoints and OpenAPI docs
+- Updated config and hot reload logic
+- Full unit/integration test coverage for new features
+- Updated documentation and usage examples
 
 ### Phase 4: Explainability and Traceability
 - Implement explainability: return edge type/weight breakdown and expansion trace in API responses.

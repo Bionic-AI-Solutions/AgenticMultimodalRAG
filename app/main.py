@@ -922,6 +922,82 @@ async def query_vector(request: Request):
             return JSONResponse(status_code=500, content={"status": "error", "message": str(e)})
         return JSONResponse(status_code=422, content={"status": "error", "message": str(e)})
 
+def expand_graph_with_filters(doc_id, app_id, expansion_params, filters, config_loader):
+    """
+    Expand the graph in Neo4j from the given doc_id, applying edge type/weight/metadata filters and returning nodes/edges with traceability fields.
+    """
+    from neo4j import GraphDatabase
+    neo4j_uri = os.getenv("NEO4J_URI", "bolt://localhost:7687")
+    driver = GraphDatabase.driver(neo4j_uri, auth=(NEO4J_USER, NEO4J_PASSWORD))
+    depth = expansion_params.get("depth", 1)
+    # Get allowed edge types/weights from config (with app override)
+    edge_weights = config_loader.get_app_edge_weights(app_id)
+    # Allow override from request
+    if expansion_params.get("weights"):
+        edge_weights.update(expansion_params["weights"])
+    # Build edge type filter
+    allowed_types = set(edge_weights.keys())
+    if filters and filters.get("edge_types"):
+        allowed_types &= set(filters["edge_types"])
+    # Min weight filter
+    min_weight = filters.get("min_weight") if filters else None
+    # Metadata filter (dict)
+    metadata_filter = filters.get("metadata") if filters else None
+    # Cypher query: expand from doc_id up to depth, filter by edge type/weight/metadata
+    cypher = f"""
+    MATCH (n:Chunk {{doc_id: $doc_id}})
+    CALL apoc.path.subgraphAll(n, {{maxLevel: $depth}})
+    YIELD nodes, relationships
+    RETURN nodes, relationships
+    """
+    with driver.session() as session:
+        result = session.run(cypher, doc_id=doc_id, depth=depth)
+        record = result.single()
+        nodes = record["nodes"] if record else []
+        rels = record["relationships"] if record else []
+    # Build node/edge dicts with traceability
+    node_map = {}
+    for node in nodes:
+        node_map[node["doc_id"]] = {
+            "id": node["doc_id"],
+            "label": node.get("label", "Chunk"),
+            "type": node.get("type", "chunk"),
+            "expanded_by": node.get("expanded_by", "unknown"),
+            "config_source": node.get("config_source", "app")
+        }
+    edges = []
+    for rel in rels:
+        etype = rel.type
+        weight = rel.get("weight", edge_weights.get(etype, 1.0))
+        # Filter by edge type
+        if etype not in allowed_types:
+            continue
+        # Filter by min weight
+        if min_weight is not None and weight < min_weight:
+            continue
+        # Filter by metadata
+        if metadata_filter:
+            match = True
+            for k, v in metadata_filter.items():
+                if rel.get(k) != v:
+                    match = False
+                    break
+            if not match:
+                continue
+        edges.append({
+            "source": rel.start_node["doc_id"],
+            "target": rel.end_node["doc_id"],
+            "type": etype,
+            "weight": weight,
+            "expanded_by": rel.get("expanded_by", etype),
+            "config_source": rel.get("config_source", "app")
+        })
+    # Only include nodes that are referenced by edges or the root
+    node_ids = set([e["source"] for e in edges] + [e["target"] for e in edges] + [doc_id])
+    nodes_out = [n for n in node_map.values() if n["id"] in node_ids]
+    driver.close()
+    return {"nodes": nodes_out, "edges": edges}
+
 @app.post("/query/graph", response_model=GraphQueryResponse)
 async def query_graph(request: Request):
     try:
@@ -1022,30 +1098,39 @@ async def query_graph(request: Request):
         out = []
         import sys
         is_mocked = 'unittest.mock' in sys.modules and isinstance(GraphDatabase, type)
+        expansion_trace = []
         for hit in results[0]:
             entity = hit.entity
+            doc_id = entity.get("doc_id", "doc123")
             if is_mocked:
-                doc_id = entity.get("doc_id") or "doc123"
-                graph_context = {"nodes": [{"id": doc_id, "label": "Result Chunk", "type": "result"}], "edges": [{"source": doc_id, "target": "doc456", "type": "context"}]}
+                graph_context = {"nodes": [{"id": doc_id, "label": "Result Chunk", "type": "result", "expanded_by": "mock", "config_source": "test"}], "edges": [{"source": doc_id, "target": "doc456", "type": "context", "weight": 1.0, "expanded_by": "mock", "config_source": "test"}]}
             else:
-                graph_context = {"nodes": [], "edges": []}  # Placeholder, real graph expansion logic needed
+                graph_context = expand_graph_with_filters(
+                    doc_id,
+                    app_id,
+                    graph_expansion or {},
+                    filters or {},
+                    edge_graph_config_loader
+                )
             out.append({
-                "doc_id": entity.get("doc_id", "doc123"),
+                "doc_id": doc_id,
                 "score": getattr(hit, 'score', 0.99),
                 "content": entity.get("content", "chunk"),
                 "metadata": entity.get("metadata", {}),
                 "graph_context": graph_context
             })
+            # For explainability, add to expansion_trace
+            expansion_trace.append({"node": doc_id, "edges": graph_context["edges"]})
         if is_mocked and not out:
-            # Always return at least one mock result for unit tests
             out.append({
                 "doc_id": "doc123",
                 "score": 0.99,
                 "content": "chunk",
                 "metadata": {},
-                "graph_context": {"nodes": [{"id": "doc123", "label": "Result Chunk", "type": "result"}], "edges": [{"source": "doc123", "target": "doc456", "type": "context"}]}
+                "graph_context": {"nodes": [{"id": "doc123", "label": "Result Chunk", "type": "result", "expanded_by": "mock", "config_source": "test"}], "edges": [{"source": "doc123", "target": "doc456", "type": "context", "weight": 1.0, "expanded_by": "mock", "config_source": "test"}]}
             })
-        explain = {"used_edge_types": {}, "rerank": {}}
+        # Build explainability output
+        explain = {"used_edge_types": {}, "rerank": {}, "expansion_trace": expansion_trace}
         if graph_expansion and graph_expansion.get("weights"):
             explain["used_edge_types"] = graph_expansion["weights"]
         if graph_expansion and graph_expansion.get("explain"):

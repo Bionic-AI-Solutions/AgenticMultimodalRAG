@@ -47,4 +47,16 @@
 - Config file: `config/edge_graph.yaml` (dict format, weights, per-app override)
 - All major logic and tests for Phases 1 & 2 are complete and passing.
 - See test reports for details. Link PRs as available.
-- Update this tracker as each phase progresses. 
+- Update this tracker as each phase progresses.
+
+| Phase | Task | Responsible | Status |
+|-------|------|-------------|--------|
+| 1-2   | Config loader, hot reload, Neo4j schema, weighted expansion, reranking, API override, explainability, tests | Team | ✅ Complete |
+| 3     | Add filter params to /query/graph (edge type, weight, metadata) | Dev | ⬜ Not Started |
+| 3     | Update OpenAPI docs and usage examples | Dev | ⬜ Not Started |
+| 3     | Update graph expansion logic to apply filters | Dev | ⬜ Not Started |
+| 3     | Add traceability fields to response | Dev | ⬜ Not Started |
+| 3     | Update config and hot reload for new options | Dev | ⬜ Not Started |
+| 3     | Add/expand unit tests for filtering/traceability | QA | ⬜ Not Started |
+| 3     | Add/expand integration tests for new API behaviors | QA | ⬜ Not Started |
+| 3     | Update usage.md and API docs | Dev | ⬜ Not Started | 
