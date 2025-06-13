@@ -1,5 +1,7 @@
 # Agentic RAG Usage: Query Decomposition
 
+> **Edge-Graph Phase Complete:** All edge-graph features (filtering, traceability, OpenAPI schema, usage) are fully implemented, tested, and documented. The system is production-ready and ready for Phase 2: Agentic Query Decomposition. See the tracker for details.
+
 ## Decomposition API Usage
 
 ### Endpoint
@@ -81,4 +83,7 @@ POST /agent/query/decompose
 ### Traceability and Extensibility
 - Each step includes a `trace` field for explainability.
 - The plan format supports future agentic capabilities (tool use, multi-hop, conditional logic).
-- The API is stable and production-ready for both OpenAI and local LLMs. 
+- The API is stable and production-ready for both OpenAI and local LLMs.
+
+## Next Steps
+- See the [Implementation Tracker](tracker.md) and [Implementation Plan](implementation_plan.md) for progress and upcoming work on Agentic Query Decomposition (Phase 2). 

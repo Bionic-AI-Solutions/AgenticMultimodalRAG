@@ -3,17 +3,19 @@
 ## Phases & Progress
 
 ### Phase 1: Complete `edge-graph` Foundation
-- [ ] **Implement Post-Expansion Filtering**
-  - [ ] Filtering logic (by type/weight/metadata) in `/query/graph`
-  - [ ] Unit tests for filtering
-  - [ ] Integration tests for filtering
-- [ ] **Implement Full Traceability**
-  - [ ] Detailed expansion trace in API response
-  - [ ] Unit tests for traceability
-  - [ ] Integration tests for traceability
-- [ ] **Complete Documentation**
-  - [ ] OpenAPI schema update
-  - [ ] Usage docs for all `edge-graph` features
+- [x] **Implement Post-Expansion Filtering**
+  - [x] Filtering logic (by type/weight/metadata) in `/query/graph`
+  - [x] Unit tests for filtering
+  - [x] Integration tests for filtering
+- [x] **Implement Full Traceability**
+  - [x] Detailed expansion trace in API response
+  - [x] Unit tests for traceability
+  - [x] Integration tests for traceability
+- [x] **Complete Documentation**
+  - [x] OpenAPI schema update
+  - [x] Usage docs for all `edge-graph` features
+
+> **All deliverables for the edge-graph phase are complete. Ready to proceed to Phase 2: Agentic Query Decomposition.**
 
 ### Phase 2: Agentic Query Decomposition (Detailed Tracking)
 - [ ] **Schema & Plan Format**
@@ -60,7 +62,7 @@
 ## Test Results
 | Phase | Unit Tests | Integration Tests |
 |-------|------------|-------------------|
-| 1     |            |                   |
+| 1     |    ✅      |        ✅         |
 | 2     |            |                   |
 | 3     |            |                   |
 | 4     |            |                   |
