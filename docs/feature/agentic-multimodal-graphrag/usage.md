@@ -176,14 +176,11 @@
                   properties:
                     doc_id:
                       type: string
-                      example: "doc123"
                     score:
                       type: number
                       format: float
-                      example: 0.98
                     content:
                       type: string
-                      example: "This is a relevant chunk of content."
                     metadata:
                       type: object
                       example: {"created_at": "2024-06-10", "doc_type": "pdf"}
@@ -340,11 +337,50 @@ requestBody:
             example: '{"depth": 1, "type": "context"}'
           filters:
             type: string
-            description: JSON string for filters
-        required:
-          - file
-          - app_id
-          - user_id
+            description: JSON string for filters (e.g., '{"edge_types": ["context_of"], "min_weight": 0.5, "metadata": {"label": "important"}}')
+            example: '{"edge_types": ["context_of"], "min_weight": 0.5, "metadata": {"label": "important"}}'
+          graph_context:
+            type: object
+            properties:
+              nodes:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    id:
+                      type: string
+                    label:
+                      type: string
+                    type:
+                      type: string
+                    expanded_by:
+                      type: string
+                    config_source:
+                      type: string
+              edges:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    source:
+                      type: string
+                    target:
+                      type: string
+                    type:
+                      type: string
+                    weight:
+                      type: number
+                    expanded_by:
+                      type: string
+                    config_source:
+                      type: string
+                    label:
+                      type: string
+# Notes:
+# - Filtering is supported by edge_types, min_weight, and metadata fields.
+# - Traceability fields (expanded_by, config_source, weight, type) are always present in nodes/edges.
+# - Backward compatible: if no filters are provided, all allowed edge types/weights are included.
+# - Allowed edge types/weights/metadata are config-driven and support hot reload.
 responses:
   '200':
     description: Successful Response
@@ -380,6 +416,10 @@ responses:
                               type: string
                             type:
                               type: string
+                            expanded_by:
+                              type: string
+                            config_source:
+                              type: string
                       edges:
                         type: array
                         items:
@@ -390,5 +430,13 @@ responses:
                             target:
                               type: string
                             type:
+                              type: string
+                            weight:
+                              type: number
+                            expanded_by:
+                              type: string
+                            config_source:
+                              type: string
+                            label:
                               type: string
 ``` 

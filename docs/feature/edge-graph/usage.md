@@ -71,8 +71,62 @@ This document provides usage examples for the edge-graph feature, including API 
   - If invalid, fallback to default/app config.
   - Check explainability output for which weights were applied.
 
-## Phase 3: App-Specific & Dynamic Configuration
-- **TODO:** Add usage for dynamic config, admin UI/API.
+## Phase 3: Filtering and Traceability (Live Example)
+
+### Filtering by Edge Type, Weight, and Metadata
+
+#### Example Request
+```json
+POST /query/graph
+{
+  "query": "What is the context of X?",
+  "app_id": "myapp",
+  "user_id": "user1",
+  "filters": {
+    "edge_types": ["context_of", "temporal_neighbor"],
+    "min_weight": 0.5,
+    "metadata": {"label": "important"}
+  },
+  "graph_expansion": {
+    "depth": 2,
+    "type": "context_of"
+  }
+}
+```
+
+#### Example Response
+```json
+{
+  "results": [
+    {
+      "doc_id": "doc123",
+      "content": "...",
+      "score": 0.98,
+      "graph_context": {
+        "nodes": [
+          {"id": "doc123", "label": "Result Chunk", "type": "result", "expanded_by": "context_of", "config_source": "app"}
+        ],
+        "edges": [
+          {"source": "doc123", "target": "doc456", "type": "context_of", "weight": 0.7, "expanded_by": "context_of", "config_source": "app", "label": "important"}
+        ]
+      }
+    }
+  ],
+  "explain": {"used_edge_types": ["context_of"], "post_filter": {"edge_types": ["context_of"], "min_weight": 0.5, "metadata": {"label": "important"}}}
+}
+```
+
+### Traceability Fields
+- Each node/edge in `graph_context` includes:
+  - `expanded_by`: Which expansion step/config produced this node/edge
+  - `type`: The type of node/edge
+  - `weight`: The edge weight (for edges)
+  - `config_source`: Which config (global/app) allowed this expansion
+  - Any additional metadata fields (e.g., `label`)
+
+### Backward Compatibility
+- If no filters are provided, all allowed edge types/weights are included (as before).
+- Existing clients do not need to change unless they want to use new features.
 
 ## Phase 4: Documentation & Usage
 - **TODO:** Add OpenAPI schema and admin/config docs.
