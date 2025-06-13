@@ -237,4 +237,10 @@ flowchart TD
 
 This system is intended for both internal developers and external users who require advanced, explainable, and composable RAG workflows. It is suitable for research, enterprise, and production environments, and is designed for extensibility, security, and high scalability.
 
-For questions, see the documentation or open an issue. 
+For questions, see the documentation or open an issue.
+
+---
+
+## License
+
+This project is open source and available for both personal and commercial use. You may use, modify, and distribute the software and its derivatives, provided that visible credit is given to **Salil Kadam** as the original author in both the source code and any public-facing documentation, websites, or user interfaces. See the [LICENSE](../LICENSE) file for the full license text and terms. 
