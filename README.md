@@ -114,22 +114,22 @@ This table shows how the Agentic Multimodal RAG System unifies and extends the b
 
 ## Features
 
-- **Multimodal Ingestion:** Ingest and index text, PDF, image, audio, and video documents ([Design](Design.md#32-multimodal-graphrag-ingestion-retrieval-and-graph-expansion), [Usage](Usage.md#41-ingesting-documents))
-- **Hybrid Vector & Graph Search:** Context, semantic, and temporal expansion with Milvus and Neo4j ([Design](Design.md#33-edge-graph-configurable-weighted-and-explainable-graph-expansion), [Usage](Usage.md#427-graphrag-config-driven-weighted-and-filtered-expansion))
-- **Agentic Query Decomposition:** Multi-step, explainable plans using LLMs or rule-based logic ([Design](Design.md#31-agentic-rag-query-decomposition-and-execution), [Usage](Usage.md#43-agentic-query-decomposition))
-- **Agentic Execution:** Step-by-step execution of complex plans, including tool calls, rerank, filter, aggregate, multi-hop, and LLM synthesis ([Design](Design.md#31-agentic-rag-query-decomposition-and-execution), [Usage](Usage.md#44-agentic-plan-execution))
-- **Tool Use (MCP):** Integrate external APIs and plugins via agentic tool_call steps ([Design](Design.md#31-agentic-rag-query-decomposition-and-execution), [Usage](Usage.md#45-advanced-agentic-behaviors))
-- **Traceability & Explainability:** Every step is fully traceable, with detailed explanations and evidence ([Design](Design.md#44-explainability), [Usage](Usage.md#49-chaining-and-composing-agentic-plans))
-- **Security & Multi-Tenancy:** JWT/OAuth2, per-app/user isolation, secure config and model management ([Design](Design.md#41-security))
-- **Extensibility:** Pluggable pipelines, config-driven, easy to add new modalities, models, or agentic behaviors ([Design](Design.md#43-extensibility))
-- **Feedback & Prompt Tuning:** User feedback API for answer/explanation quality ([API](API.md#37-feedback))
+- **Multimodal Ingestion:** Ingest and index text, PDF, image, audio, and video documents ([Design](docs/Design.md#32-multimodal-graphrag-ingestion-retrieval-and-graph-expansion), [Usage](docs/Usage.md#41-ingesting-documents))
+- **Hybrid Vector & Graph Search:** Context, semantic, and temporal expansion with Milvus and Neo4j ([Design](docs/Design.md#33-edge-graph-configurable-weighted-and-explainable-graph-expansion), [Usage](docs/Usage.md#427-graphrag-config-driven-weighted-and-filtered-expansion))
+- **Agentic Query Decomposition:** Multi-step, explainable plans using LLMs or rule-based logic ([Design](docs/Design.md#31-agentic-rag-query-decomposition-and-execution), [Usage](docs/Usage.md#43-agentic-query-decomposition))
+- **Agentic Execution:** Step-by-step execution of complex plans, including tool calls, rerank, filter, aggregate, multi-hop, and LLM synthesis ([Design](docs/Design.md#31-agentic-rag-query-decomposition-and-execution), [Usage](docs/Usage.md#44-agentic-plan-execution))
+- **Tool Use (MCP):** Integrate external APIs and plugins via agentic tool_call steps ([Design](docs/Design.md#31-agentic-rag-query-decomposition-and-execution), [Usage](docs/Usage.md#45-advanced-agentic-behaviors))
+- **Traceability & Explainability:** Every step is fully traceable, with detailed explanations and evidence ([Design](docs/Design.md#44-explainability), [Usage](docs/Usage.md#49-chaining-and-composing-agentic-plans))
+- **Security & Multi-Tenancy:** JWT/OAuth2, per-app/user isolation, secure config and model management ([Design](docs/Design.md#41-security))
+- **Extensibility:** Pluggable pipelines, config-driven, easy to add new modalities, models, or agentic behaviors ([Design](docs/Design.md#43-extensibility))
+- **Feedback & Prompt Tuning:** User feedback API for answer/explanation quality ([API](docs/API.md#37-feedback))
 - **Planned:** Video RAG integration (video ingestion, frame extraction, video embedding, multimodal fusion, unified API support). See [docs/ROADMAP.md](docs/ROADMAP.md) and [docs/feature/agentic-multimodal-graphrag/video-future-phase.md](docs/feature/agentic-multimodal-graphrag/video-future-phase.md) for details.
 
 ---
 
 ## Quick Setup & Run
 
-See [docs/Setup.md](docs/Setup.md) for full details.
+See [Setup.md](docs/Setup.md) for full details.
 
 ### Docker Quickstart
 ```bash
@@ -161,7 +161,7 @@ poetry run uvicorn app.main:app --reload
   ```bash
   ENV=test poetry run pytest tests/integratione2e
   ```
-- See [Usage.md](Usage.md#6-running-unit-and-integration-tests) for details.
+- See [Usage.md](docs/Usage.md#6-running-unit-and-integration-tests) for details.
 
 ---
 
@@ -178,14 +178,14 @@ poetry run uvicorn app.main:app --reload
 ## Contribution & Security
 
 - **Contribution:**
-  - See [ROADMAP.md](ROADMAP.md) for feature roadmap and contribution opportunities
+  - See [ROADMAP.md](docs/ROADMAP.md) for feature roadmap and contribution opportunities
   - Follow best practices for code, documentation, and testing
   - All contributions must pass unit and integration tests
 - **Security:**
   - Never commit secrets or .env files to version control
   - Use strong credentials for all services
   - Secure all external tool_call endpoints and credentials
-  - See [Setup.md](Setup.md#9-security-best-practices) and [Design.md](Design.md#41-security)
+  - See [Setup.md](docs/Setup.md#9-security-best-practices) and [Design.md](docs/Design.md#41-security)
 
 ---
 
@@ -225,14 +225,14 @@ flowchart TD
 
 ## Documentation & References
 
-- [docs/Usage.md](docs/Usage.md): Usage flows and examples
-- [docs/Setup.md](docs/Setup.md): Setup and deployment
-- [docs/Design.md](docs/Design.md): System and feature design
-- [docs/API.md](docs/API.md): API reference and schemas
-- [docs/ROADMAP.md](docs/ROADMAP.md): Feature roadmap and future plans
-- [docs/feature/agentic_rag/implementation_plan.md](docs/feature/agentic_rag/implementation_plan.md)
-- [docs/feature/agentic-multimodal-graphrag/technical_design.md](docs/feature/agentic-multimodal-graphrag/technical_design.md)
-- [docs/feature/edge-graph/technical_design.md](docs/feature/edge-graph/technical_design.md)
+- [Usage.md](docs/Usage.md): Usage flows and examples
+- [Setup.md](docs/Setup.md): Setup and deployment
+- [Design.md](docs/Design.md): System and feature design
+- [API.md](docs/API.md): API reference and schemas
+- [ROADMAP.md](docs/ROADMAP.md): Feature roadmap and future plans
+- [feature/agentic_rag/implementation_plan.md](docs/feature/agentic_rag/implementation_plan.md)
+- [feature/agentic-multimodal-graphrag/technical_design.md](docs/feature/agentic-multimodal-graphrag/technical_design.md)
+- [feature/edge-graph/technical_design.md](docs/feature/edge-graph/technical_design.md)
 
 ---
 
@@ -253,4 +253,4 @@ You may use, modify, and distribute this software for personal or commercial pur
 See the [LICENSE](../LICENSE) file for the full license text and terms.
 
 ## Roadmap
-See [docs/ROADMAP.md](docs/ROADMAP.md) for the full feature roadmap, including planned Video RAG capabilities. 
+See [ROADMAP.md](docs/ROADMAP.md) for the full feature roadmap, including planned Video RAG capabilities. 
