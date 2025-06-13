@@ -123,13 +123,13 @@ This table shows how the Agentic Multimodal RAG System unifies and extends the b
 - **Security & Multi-Tenancy:** JWT/OAuth2, per-app/user isolation, secure config and model management ([Design](Design.md#41-security))
 - **Extensibility:** Pluggable pipelines, config-driven, easy to add new modalities, models, or agentic behaviors ([Design](Design.md#43-extensibility))
 - **Feedback & Prompt Tuning:** User feedback API for answer/explanation quality ([API](API.md#37-feedback))
-- **Planned:** Video RAG integration (video ingestion, frame extraction, video embedding, multimodal fusion, unified API support). See [docs/ROADMAP.md](docs/ROADMAP.md) and [video-future-phase.md](docs/feature/agentic-multimodal-graphrag/video-future-phase.md) for details.
+- **Planned:** Video RAG integration (video ingestion, frame extraction, video embedding, multimodal fusion, unified API support). See [docs/ROADMAP.md](docs/ROADMAP.md) and [docs/feature/agentic-multimodal-graphrag/video-future-phase.md](docs/feature/agentic-multimodal-graphrag/video-future-phase.md) for details.
 
 ---
 
 ## Quick Setup & Run
 
-See [Setup.md](Setup.md) for full details.
+See [docs/Setup.md](docs/Setup.md) for full details.
 
 ### Docker Quickstart
 ```bash
@@ -225,12 +225,14 @@ flowchart TD
 
 ## Documentation & References
 
-- [Usage.md](Usage.md): Usage flows and examples
-- [Setup.md](Setup.md): Setup and deployment
-- [Design.md](Design.md): System and feature design
-- [API.md](API.md): API reference and schemas
-- [ROADMAP.md](ROADMAP.md): Feature roadmap and future plans
-- [plan_schema.md](feature/agentic_rag/plan_schema.md): Agentic plan schema
+- [docs/Usage.md](docs/Usage.md): Usage flows and examples
+- [docs/Setup.md](docs/Setup.md): Setup and deployment
+- [docs/Design.md](docs/Design.md): System and feature design
+- [docs/API.md](docs/API.md): API reference and schemas
+- [docs/ROADMAP.md](docs/ROADMAP.md): Feature roadmap and future plans
+- [docs/feature/agentic_rag/implementation_plan.md](docs/feature/agentic_rag/implementation_plan.md)
+- [docs/feature/agentic-multimodal-graphrag/technical_design.md](docs/feature/agentic-multimodal-graphrag/technical_design.md)
+- [docs/feature/edge-graph/technical_design.md](docs/feature/edge-graph/technical_design.md)
 
 ---
 
