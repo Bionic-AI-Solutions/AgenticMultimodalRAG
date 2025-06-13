@@ -2,6 +2,9 @@
 
 > **Milestone:** Multimodal vector search API (text, image, audio, PDF, video) is complete, fully tested, and documented as of this phase. See the tracker for details.
 
+> **Update (2024-Phase 2):**
+> The system now produces multi-step, multimodal, and agentic plans for all queries. The schema and logic are extensible for future agentic behaviors (tool use, rerank, filter, conditional, etc.). All tests pass for the new plan structure.
+
 ## 1. Setup
 
 - Clone the repo and install dependencies:

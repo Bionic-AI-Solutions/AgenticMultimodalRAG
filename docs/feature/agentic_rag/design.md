@@ -3,12 +3,21 @@
 ## Overview
 This document details the design for the agentic query decomposition system, supporting multimodal, explainable, and extensible agentic RAG workflows. The system is built to be production-ready, backend-agnostic, and easily extensible for future agentic capabilities.
 
+> **Update (2024-Phase 2):**
+> The system now produces multi-step, multimodal, and agentic plans for all queries. The schema and logic are extensible for future agentic behaviors (tool use, rerank, filter, conditional, etc.). All tests pass for the new plan structure.
+
 ## Key Design Goals
 - **Extensibility**: The decomposition plan schema supports new step types, modalities, and agentic behaviors (tool use, multi-hop, conditional logic).
 - **Traceability**: Every step in the plan includes trace metadata for explainability and debugging.
 - **Multimodal Support**: The system natively handles queries and plans involving text, image, audio, and other modalities.
 - **LLM Backend Agnostic**: The QueryDecomposer and LLM wrapper support both OpenAI-compatible APIs and local LLMs (e.g., llama.cpp, vLLM) via a unified interface.
 - **Production-Readiness**: The API, schema, and plan format are stable, versioned, and ready for high-scale, multi-user environments.
+
+## Multi-Step, Multimodal, and Agentic Plan Structure
+- The QueryDecomposer now generates plans with multiple steps for all modalities (e.g., audio: transcription → vector_search → graph_query).
+- Each step is explicitly typed, has dependencies, and includes trace metadata for explainability.
+- The schema is extensible for future agentic behaviors (tool use, rerank, filter, conditional, etc.).
+- The system supports both rule-based and LLM-based decomposition, with identical plan format.
 
 ## Schema Rationale
 - **DecompositionStep**: Each step is a Pydantic model with fields for type, modality, parameters, dependencies, and trace.

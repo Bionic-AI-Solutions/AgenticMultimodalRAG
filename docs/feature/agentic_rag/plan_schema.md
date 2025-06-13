@@ -16,9 +16,9 @@
 ```json
 {
   "plan": [
-    {"step_id": 1, "type": "audio_transcription", "modality": "audio", "parameters": {"file": "audio.mp3"}, "dependencies": [], "trace": {"source": "llm"}},
-    {"step_id": 2, "type": "vector_search", "modality": "text", "parameters": {"query": "topics from step 1"}, "dependencies": [1], "trace": {"source": "llm"}},
-    {"step_id": 3, "type": "graph_query", "modality": "image", "parameters": {"related_to": "topics from step 1"}, "dependencies": [1], "trace": {"source": "llm"}}
+    {"step_id": 1, "type": "audio_transcription", "modality": "audio", "parameters": {"file": "audio.mp3"}, "dependencies": [], "trace": {"source": "rule-based", "explanation": "Rule-based agentic decomposition", "step": "audio_transcription"}},
+    {"step_id": 2, "type": "vector_search", "modality": "text", "parameters": {"query": "topics from step 1"}, "dependencies": [1], "trace": {"source": "rule-based", "explanation": "Rule-based agentic decomposition", "step": "vector_search"}},
+    {"step_id": 3, "type": "graph_query", "modality": "image", "parameters": {"related_to": "topics from step 1"}, "dependencies": [1], "trace": {"source": "rule-based", "explanation": "Rule-based agentic decomposition", "step": "graph_query"}}
   ],
   "traceability": true
 }
@@ -31,4 +31,6 @@
 - **parameters**: Flexible for all step types
 - **dependencies**: Supports complex, conditional, and multi-hop plans
 - **trace**: Ensures explainability and auditability
-- **traceability**: Plan-level flag for compliance and debugging 
+- **traceability**: Plan-level flag for compliance and debugging
+
+> **Note:** The system now produces multi-step, multimodal, and agentic plans for all queries. The schema is extensible for future agentic behaviors (tool use, rerank, filter, conditional, etc.). 

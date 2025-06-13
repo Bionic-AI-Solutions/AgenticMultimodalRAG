@@ -18,31 +18,31 @@
 > **All deliverables for the edge-graph phase are complete. Ready to proceed to Phase 2: Agentic Query Decomposition.**
 
 ### Phase 2: Agentic Query Decomposition (Detailed Tracking)
-- [ ] **Schema & Plan Format**
-  - [ ] Define Pydantic models for decomposition plan and steps
-  - [ ] Document schema in plan_schema.md
-- [ ] **QueryDecomposer Component**
-  - [ ] Implement core logic in query_decomposer.py
-  - [ ] Integrate with OpenAI API and local LLMs (configurable)
-  - [ ] Prompt engineering for structured plan output
-  - [ ] Fallback rule-based decomposer for tests
-- [ ] **API Endpoint**
-  - [ ] Add POST /agent/query/decompose endpoint
-  - [ ] OpenAPI schema and usage docs
-- [ ] **LLM Integration**
-  - [ ] Backend-agnostic LLM wrapper (OpenAI/local)
-  - [ ] Config-driven backend selection
-  - [ ] Prompt templates/examples for both backends
-- [ ] **Testing**
-  - [ ] Unit tests for decomposer, schema, LLM output parsing
-  - [ ] Integration tests for endpoint (OpenAI/local, multimodal)
-- [ ] **Documentation**
-  - [ ] Usage examples in usage.md
-  - [ ] OpenAPI schema for endpoint
-  - [ ] Developer notes on extension/customization
-  - [ ] Design doc (design.md) for extensibility, traceability, multimodal, backend-agnostic
-- [ ] **Design Considerations**
-  - [ ] Extensibility, traceability, multimodal, LLM backend-agnostic, robust testing, production-ready
+- [x] **Schema & Plan Format**
+  - [x] Define Pydantic models for decomposition plan and steps
+  - [x] Document schema in plan_schema.md
+- [x] **QueryDecomposer Component**
+  - [x] Implement core logic in query_decomposer.py
+  - [x] Integrate with OpenAI API and local LLMs (configurable)
+  - [x] Prompt engineering for structured plan output
+  - [x] Fallback rule-based decomposer for tests
+- [x] **API Endpoint**
+  - [x] Add POST /agent/query/decompose endpoint
+  - [x] OpenAPI schema and usage docs
+- [x] **LLM Integration**
+  - [x] Backend-agnostic LLM wrapper (OpenAI/local)
+  - [x] Config-driven backend selection
+  - [x] Prompt templates/examples for both backends
+- [x] **Testing**
+  - [x] Unit tests for decomposer, schema, LLM output parsing
+  - [x] Integration tests for endpoint (OpenAI/local, multimodal)
+- [x] **Documentation**
+  - [x] Usage examples in usage.md
+  - [x] OpenAPI schema for endpoint
+  - [x] Developer notes on extension/customization
+  - [x] Design doc (design.md) for extensibility, traceability, multimodal, backend-agnostic
+- [x] **Design Considerations**
+  - [x] Extensibility, traceability, multimodal, LLM backend-agnostic, robust testing, production-ready
 
 ### Phase 3: Agentic Graph Traversal & Tool Use
 - [ ] **`AgentExecutor` Component**
@@ -63,14 +63,15 @@
 | Phase | Unit Tests | Integration Tests |
 |-------|------------|-------------------|
 | 1     |    ✅      |        ✅         |
-| 2     |            |                   |
+| 2     |    ✅      |        ✅         |
 | 3     |            |                   |
 | 4     |            |                   |
 
 ## Notes
 - All integration tests (including audio ingestion/query) are passing after the Whisper model loader fix. Whisper model files must be in `/Volumes/ssd/mac/models/openai__whisper-base/`.
 - The codebase is production-ready for all current features (vector, image, audio, PDF, graph, agentic decomposition).
-- Phase 1 is fully complete and the system is ready for Phase 2: Agentic Query Decomposition.
+- Phase 1 and Phase 2 are fully complete and the system is ready for Phase 3: Agentic Graph Traversal & Tool Use.
+- The system now produces multi-step, multimodal, and agentic plans for all queries. All tests pass for the new plan structure.
 - This tracker will be updated as each phase progresses.
 - Link PRs as available.
 

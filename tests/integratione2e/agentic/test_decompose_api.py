@@ -17,9 +17,11 @@ def test_decompose_api_text():
     data = resp.json()
     assert "plan" in data
     assert data["traceability"] is True
-    assert len(data["plan"]) == 1
+    assert len(data["plan"]) == 2
     assert data["plan"][0]["type"] == "vector_search"
     assert data["plan"][0]["modality"] == "text"
+    assert data["plan"][1]["type"] == "graph_query"
+    assert data["plan"][1]["dependencies"] == [1]
 
 def test_decompose_api_audio():
     resp = client.post("/agent/query/decompose", json={
@@ -33,10 +35,12 @@ def test_decompose_api_audio():
     data = resp.json()
     assert "plan" in data
     assert data["traceability"] is True
-    assert len(data["plan"]) == 2
+    assert len(data["plan"]) == 3
     assert data["plan"][0]["type"] == "audio_transcription"
     assert data["plan"][1]["type"] == "vector_search"
     assert data["plan"][1]["dependencies"] == [1]
+    assert data["plan"][2]["type"] == "graph_query"
+    assert data["plan"][2]["dependencies"] == [2]
 
 def test_decompose_api_llm_mock(monkeypatch):
     # Patch the QueryDecomposer in the API to use llm_backend='mock', use_llm=True

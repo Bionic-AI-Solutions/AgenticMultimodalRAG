@@ -20,7 +20,7 @@ POST /agent/query/decompose
 }
 ```
 
-### Response Example
+### Response Example (Text Query)
 ```json
 {
   "plan": [
@@ -28,18 +28,30 @@ POST /agent/query/decompose
       "step_id": 1,
       "type": "vector_search",
       "modality": "text",
-      "parameters": {"query": "Summarize the main findings from the PDF."},
+      "parameters": {"query": "What is the summary?"},
       "dependencies": [],
-      "trace": {"source": "llm", "explanation": "Decomposed from user query."}
+      "trace": {"source": "rule-based", "explanation": "Rule-based agentic decomposition", "step": "vector_search"}
     },
     {
       "step_id": 2,
       "type": "graph_query",
-      "modality": "image",
-      "parameters": {"related_to": "findings_from_step_1"},
+      "modality": "text",
+      "parameters": {"related_to": "results from step 1"},
       "dependencies": [1],
-      "trace": {"source": "llm", "explanation": "Find images related to findings."}
+      "trace": {"source": "rule-based", "explanation": "Rule-based agentic decomposition", "step": "graph_query"}
     }
+  ],
+  "traceability": true
+}
+```
+
+### Response Example (Audio Query)
+```json
+{
+  "plan": [
+    {"step_id": 1, "type": "audio_transcription", "modality": "audio", "parameters": {"file": "audio.mp3"}, "dependencies": [], "trace": {"source": "rule-based", "explanation": "Rule-based agentic decomposition", "step": "audio_transcription"}},
+    {"step_id": 2, "type": "vector_search", "modality": "text", "parameters": {"query": "transcription from step 1"}, "dependencies": [1], "trace": {"source": "rule-based", "explanation": "Rule-based agentic decomposition", "step": "vector_search"}},
+    {"step_id": 3, "type": "graph_query", "modality": "text", "parameters": {"related_to": "topics from step 2"}, "dependencies": [2], "trace": {"source": "rule-based", "explanation": "Rule-based agentic decomposition", "step": "graph_query"}}
   ],
   "traceability": true
 }
@@ -74,9 +86,9 @@ POST /agent/query/decompose
 ```json
 {
   "plan": [
-    {"step_id": 1, "type": "audio_transcription", "modality": "audio", "parameters": {"file": "audio.mp3"}, "dependencies": [], "trace": {"source": "llm"}},
-    {"step_id": 2, "type": "vector_search", "modality": "text", "parameters": {"query": "topics from step 1"}, "dependencies": [1], "trace": {"source": "llm"}},
-    {"step_id": 3, "type": "graph_query", "modality": "image", "parameters": {"related_to": "topics from step 1"}, "dependencies": [1], "trace": {"source": "llm"}}
+    {"step_id": 1, "type": "audio_transcription", "modality": "audio", "parameters": {"file": "audio.mp3"}, "dependencies": [], "trace": {"source": "rule-based", "explanation": "Rule-based agentic decomposition", "step": "audio_transcription"}},
+    {"step_id": 2, "type": "vector_search", "modality": "text", "parameters": {"query": "topics from step 1"}, "dependencies": [1], "trace": {"source": "rule-based", "explanation": "Rule-based agentic decomposition", "step": "vector_search"}},
+    {"step_id": 3, "type": "graph_query", "modality": "image", "parameters": {"related_to": "topics from step 1"}, "dependencies": [1], "trace": {"source": "rule-based", "explanation": "Rule-based agentic decomposition", "step": "graph_query"}}
   ],
   "traceability": true
 }
@@ -86,6 +98,7 @@ POST /agent/query/decompose
 - Each step includes a `trace` field for explainability.
 - The plan format supports future agentic capabilities (tool use, multi-hop, conditional logic).
 - The API is stable and production-ready for both OpenAI and local LLMs.
+- **Note:** The system now produces richer, multi-step agentic plans for all modalities, supporting advanced multimodal and agentic workflows.
 
 ## Next Steps
 - See the [Implementation Tracker](tracker.md) and [Implementation Plan](implementation_plan.md) for progress and upcoming work on Agentic Query Decomposition (Phase 2). 
