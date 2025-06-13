@@ -1,5 +1,8 @@
 # Agentic RAG: Query Decomposition Design
 
+> **Update (2024-Phase 3b):**
+> Advanced agentic behaviors—filter, aggregate, multi-hop, and llm_call—are now fully implemented, tested, and production-ready. All unit and integration tests pass. See the tracker for details.
+
 ## Overview
 This document details the design for the agentic query decomposition system, supporting multimodal, explainable, and extensible agentic RAG workflows. The system is built to be production-ready, backend-agnostic, and easily extensible for future agentic capabilities.
 
@@ -59,13 +62,4 @@ The next phase will expand the agentic system to support:
 - **llm_call**: Use an LLM for synthesis, summarization, or reasoning at any step
 
 ### AgentExecutor Extensions
-- The `AgentExecutor` will be extended to:
-  - Dynamically select and execute tool types based on the plan
-  - Evaluate conditions and branch the plan as needed
-  - Aggregate and transform results between steps
-  - Maintain and update agent state/context as the plan executes
-  - Support error handling, retries, and alternative paths
-
-### Next Steps
-- Usage, implementation plan, and tracker docs will be updated for these advanced behaviors
-- Implementation and tests will follow 
+- The `

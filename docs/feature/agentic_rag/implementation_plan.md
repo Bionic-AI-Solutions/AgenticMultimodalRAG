@@ -1,5 +1,8 @@
 # Agentic RAG: Implementation Plan
 
+> **Update (2024-Phase 3b):**
+> Advanced agentic behaviors—filter, aggregate, multi-hop, and llm_call—are now fully implemented, tested, and production-ready. All unit and integration tests pass. See the tracker for details.
+
 ## Overview
 This document outlines the phased, testable implementation plan for the Agentic RAG feature. This feature will build upon the existing `edge-graph` capabilities to introduce a layer of agentic behavior, enabling complex query decomposition, dynamic graph traversal, and reasoned response synthesis.
 

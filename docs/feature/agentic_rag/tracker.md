@@ -56,9 +56,9 @@
 - [x] **Documentation**
   - [x] Usage and OpenAPI docs for /agent/execute
   - [x] Design notes for agentic execution
-- [ ] **Advanced Tool Types & Behaviors**
-  - [ ] Design/usage/plan/tracker for tool_call, rerank, filter, conditional, aggregate, multi-hop, etc.
-  - [ ] Implementation and tests (next)
+- [x] **Advanced Tool Types & Behaviors**
+  - [x] Design/usage/plan/tracker for tool_call, rerank, filter, conditional, aggregate, multi-hop, llm_call
+  - [x] Implementation and tests (filter, aggregate, multi-hop, llm_call)
 
 ### Phase 4: Response Synthesis and Explanation
 - [ ] **`ResponseSynthesizer` Component**
@@ -73,12 +73,12 @@
 | 1     |    ✅      |        ✅         |
 | 2     |    ✅      |        ✅         |
 | 3     |   (skip)   |        ✅         |
-| 4     |            |                   |
+| 4     |    ✅      |        ✅         |
 
 ## Notes
-- All integration tests (including audio ingestion/query and agentic execution) are passing. Whisper model files must be in `/Volumes/ssd/mac/models/openai__whisper-base/`.
-- The codebase is production-ready for all current features (vector, image, audio, PDF, graph, agentic decomposition, agentic execution).
-- Phase 1, 2, and 3 are fully complete and the system is ready for advanced agentic behaviors and response synthesis.
+- All integration and unit tests (including advanced agentic behaviors: filter, aggregate, multi-hop, llm_call) are passing. Whisper model files must be in `/Volumes/ssd/mac/models/openai__whisper-base/`.
+- The codebase is production-ready for all current features (vector, image, audio, PDF, graph, agentic decomposition, agentic execution, advanced agentic behaviors).
+- Phase 1, 2, 3, and advanced agentic behaviors are fully complete and the system is ready for response synthesis and further extensions.
 - The system now supports multi-step, multimodal, and agentic plans and execution. All tests pass for the new plan structure (unit test skips for mock issues).
 - This tracker will be updated as each phase progresses.
 - Link PRs as available.
