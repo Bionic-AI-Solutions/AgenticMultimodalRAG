@@ -123,6 +123,7 @@ This table shows how the Agentic Multimodal RAG System unifies and extends the b
 - **Security & Multi-Tenancy:** JWT/OAuth2, per-app/user isolation, secure config and model management ([Design](Design.md#41-security))
 - **Extensibility:** Pluggable pipelines, config-driven, easy to add new modalities, models, or agentic behaviors ([Design](Design.md#43-extensibility))
 - **Feedback & Prompt Tuning:** User feedback API for answer/explanation quality ([API](API.md#37-feedback))
+- **Planned:** Video RAG integration (video ingestion, frame extraction, video embedding, multimodal fusion, unified API support). See [docs/ROADMAP.md](docs/ROADMAP.md) and [video-future-phase.md](docs/feature/agentic-multimodal-graphrag/video-future-phase.md) for details.
 
 ---
 
@@ -247,4 +248,7 @@ This project is licensed under the Attribution Assurance License (AAL).
 
 You may use, modify, and distribute this software for personal or commercial purposes, provided that visible credit is given to **Salil Kadam** as the original author in both the source code and any public-facing documentation, websites, or user interfaces, as required by the license.
 
-See the [LICENSE](../LICENSE) file for the full license text and terms. 
+See the [LICENSE](../LICENSE) file for the full license text and terms.
+
+## Roadmap
+See [docs/ROADMAP.md](docs/ROADMAP.md) for the full feature roadmap, including planned Video RAG capabilities. 

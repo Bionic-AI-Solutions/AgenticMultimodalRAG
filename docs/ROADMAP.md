@@ -27,6 +27,7 @@ The Agentic Multimodal RAG System is committed to delivering a best-of-all-world
 | **⬜ Planned** | Improved Explainability         | LLM-based, user-tunable explanations, advanced trace analytics                         | v1.2+            |
 | **⬜ Planned** | Scalability & Performance       | Distributed ingestion/query, sharding, autoscaling, cloud-native deployment            | v1.2+            |
 | **⬜ Planned** | Production UI & API Gateway     | User-facing web UI, API gateway, RBAC, analytics                                       | v1.3+            |
+| **⬜ Planned** | Video RAG Integration           | Integrate video ingestion, frame extraction, video embedding, and multimodal video search/RAG capabilities | v1.2+            |
 
 ---
 
@@ -56,6 +57,11 @@ The Agentic Multimodal RAG System is committed to delivering a best-of-all-world
 ### Testing & DevOps
 - **Completed:** Full unit/integration test coverage, live service integration, CI-ready.
 - **Planned:** Distributed test harness, cloud-native deployment, autoscaling.
+
+### Video RAG (Planned)
+- **Planned:** Integration of video ingestion, frame extraction, video embedding (e.g., frame-based, VideoCLIP, TimeSformer), and multimodal fusion for video search and RAG workflows.
+- **API Support:** Unified endpoints for video queries, chunking, and retrieval.
+- **References:** See [video-future-phase.md](feature/agentic-multimodal-graphrag/video-future-phase.md) for design and best practices.
 
 ---
 
