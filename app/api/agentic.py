@@ -4,11 +4,13 @@ from typing import Any, Dict, Optional
 from app.agentic.query_decomposer import QueryDecomposer
 from app.agentic.models import DecompositionPlan
 from app.agentic.agent_executor import AgentExecutor
+from app.agentic.response_synthesizer import ResponseSynthesizer, ResponseSynthesisRequest, ResponseSynthesisResult
 
 router = APIRouter()
 
 decomposer = QueryDecomposer()
 executor = AgentExecutor()
+synthesizer = ResponseSynthesizer()
 
 class DecomposeRequest(BaseModel):
     query: str
@@ -49,4 +51,16 @@ async def execute_agentic_plan(request: Request):
         result = executor.execute_plan(plan, app_id=app_id, user_id=user_id, context=context)
         return JSONResponse(content=result)
     # Future: accept raw query, decompose, then execute
-    return JSONResponse(status_code=422, content={"error": "Request must include a valid DecompositionPlan."}) 
+    return JSONResponse(status_code=422, content={"error": "Request must include a valid DecompositionPlan."})
+
+@router.post("/agent/answer", response_model=ResponseSynthesisResult, tags=["Agentic"], summary="Synthesize a final answer and explanation from agentic execution trace")
+async def synthesize_agentic_answer(request: Request):
+    """
+    Synthesize a final answer and step-by-step explanation from the results and trace of an agentic plan execution.
+    Accepts: plan, execution_trace, app_id, user_id, context (optional)
+    Returns: answer, explanation, supporting evidence, trace
+    """
+    body = await request.json()
+    req = ResponseSynthesisRequest(**body)
+    result = synthesizer.synthesize_answer(req)
+    return result 

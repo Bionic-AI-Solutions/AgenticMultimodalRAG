@@ -284,3 +284,47 @@ curl -X POST /agent/execute \
 - Use llm_call steps for synthesis, summarization, or advanced reasoning.
 - Specify input step and prompt.
 - The output includes an `llm_call` field for traceability. 
+
+# Response Synthesis & Explanation Usage
+
+## Endpoint
+POST /agent/answer
+
+## Request Example
+```json
+{
+  "plan": {"plan": [ ... ], "traceability": true},
+  "execution_trace": [
+    {"step_id": 1, "type": "vector_search", "result": {"results": [{"doc_id": "a", "score": 0.9}]}},
+    {"step_id": 2, "type": "filter", "result": {"results": [{"doc_id": "a", "score": 0.9}], "filter_method": "min_score"}},
+    {"step_id": 3, "type": "llm_call", "result": {"llm_call": true, "synthesized": "summary"}}
+  ],
+  "app_id": "app1",
+  "user_id": "user1"
+}
+```
+
+## Response Example
+```json
+{
+  "answer": "Based on the results: {'llm_call': true, 'synthesized': 'summary'}\n\nExplanation:\nStep 1 (vector_search): result = {'results': [{'doc_id': 'a', 'score': 0.9}]}\nStep 2 (filter): result = {'results': [{'doc_id': 'a', 'score': 0.9}], 'filter_method': 'min_score'}\nStep 3 (llm_call): result = {'llm_call': true, 'synthesized': 'summary'}",
+  "explanation": "Step 1 (vector_search): result = {'results': [{'doc_id': 'a', 'score': 0.9}]}\nStep 2 (filter): result = {'results': [{'doc_id': 'a', 'score': 0.9}], 'filter_method': 'min_score'}\nStep 3 (llm_call): result = {'llm_call': true, 'synthesized': 'summary'}",
+  "supporting_evidence": [{"llm_call": true, "synthesized": "summary"}],
+  "trace": [ ... ]
+}
+```
+
+## Schema
+- `plan`: The original agentic plan (DecompositionPlan)
+- `execution_trace`: List of step results from AgentExecutor
+- `app_id`, `user_id`: For context and traceability
+- `answer`: Synthesized, human-readable answer
+- `explanation`: Step-by-step explanation of how the answer was derived
+- `supporting_evidence`: List of key evidence/results
+- `trace`: Full execution trace
+
+## Best Practices
+- Use this endpoint after executing an agentic plan to get a final answer and explanation.
+- The answer is synthesized using an LLM if available, or a template otherwise.
+- The explanation is always generated from the trace for transparency and auditability.
+- You can customize the LLM prompt or explanation logic by extending the ResponseSynthesizer. 
