@@ -5,6 +5,9 @@ from app.agentic.query_decomposer import QueryDecomposer
 from app.agentic.models import DecompositionPlan
 from app.agentic.agent_executor import AgentExecutor
 from app.agentic.response_synthesizer import ResponseSynthesizer, ResponseSynthesisRequest, ResponseSynthesisResult
+import json
+import os
+from fastapi import status
 
 router = APIRouter()
 
@@ -12,12 +15,26 @@ decomposer = QueryDecomposer()
 executor = AgentExecutor()
 synthesizer = ResponseSynthesizer()
 
+FEEDBACK_FILE = os.getenv("FEEDBACK_FILE", "feedback.jsonl")
+
 class DecomposeRequest(BaseModel):
     query: str
     app_id: str
     user_id: str
     modality: str
     context: Optional[Dict[str, Any]] = None
+
+class FeedbackRequest(BaseModel):
+    app_id: str
+    user_id: str
+    plan: Any
+    execution_trace: Any
+    answer: str
+    explanation: str
+    rating: int  # 1-5
+    comments: Optional[str] = None
+    explanation_style: Optional[str] = None
+    prompt_version: Optional[str] = None
 
 @router.post("/agent/query/decompose", response_model=DecompositionPlan, tags=["Agentic"], summary="Decompose a user query into an agentic plan")
 def decompose_query(request: DecomposeRequest = Body(...)):
@@ -57,10 +74,26 @@ async def execute_agentic_plan(request: Request):
 async def synthesize_agentic_answer(request: Request):
     """
     Synthesize a final answer and step-by-step explanation from the results and trace of an agentic plan execution.
-    Accepts: plan, execution_trace, app_id, user_id, context (optional)
+    Accepts: plan, execution_trace, app_id, user_id, context (optional), explanation_style (optional), prompt_version (optional)
+    - explanation_style: e.g., 'step-by-step', 'short', 'detailed', 'for a 5th grader'
+    - prompt_version: e.g., 'default', 'v2', etc.
     Returns: answer, explanation, supporting evidence, trace
     """
     body = await request.json()
     req = ResponseSynthesisRequest(**body)
     result = synthesizer.synthesize_answer(req)
-    return result 
+    return result
+
+@router.post("/agent/feedback", status_code=status.HTTP_201_CREATED, tags=["Agentic"], summary="Submit user feedback on agentic answer/explanation")
+async def submit_agentic_feedback(feedback: FeedbackRequest):
+    """
+    Submit user feedback on an agentic answer and explanation.
+    Accepts: app_id, user_id, plan, execution_trace, answer, explanation, rating (1-5), comments (optional), explanation_style, prompt_version
+    Stores feedback in a local file (feedback.jsonl) for now. Returns success message.
+    TODO: Integrate with DB and feedback analytics.
+    """
+    record = feedback.dict()
+    record["timestamp"] = __import__("datetime").datetime.utcnow().isoformat()
+    with open(FEEDBACK_FILE, "a") as f:
+        f.write(json.dumps(record) + "\n")
+    return {"status": "success", "message": "Feedback recorded."} 

@@ -300,7 +300,9 @@ POST /agent/answer
     {"step_id": 3, "type": "llm_call", "result": {"llm_call": true, "synthesized": "summary"}}
   ],
   "app_id": "app1",
-  "user_id": "user1"
+  "user_id": "user1",
+  "explanation_style": "for a 5th grader",
+  "prompt_version": "v2"
 }
 ```
 
@@ -318,13 +320,63 @@ POST /agent/answer
 - `plan`: The original agentic plan (DecompositionPlan)
 - `execution_trace`: List of step results from AgentExecutor
 - `app_id`, `user_id`: For context and traceability
+- `explanation_style`: (optional) e.g., 'step-by-step', 'short', 'detailed', 'for a 5th grader'
+- `prompt_version`: (optional) e.g., 'default', 'v2', etc.
 - `answer`: Synthesized, human-readable answer
 - `explanation`: Step-by-step explanation of how the answer was derived
 - `supporting_evidence`: List of key evidence/results
 - `trace`: Full execution trace
 
 ## Best Practices
-- Use this endpoint after executing an agentic plan to get a final answer and explanation.
-- The answer is synthesized using an LLM if available, or a template otherwise.
+- Use `explanation_style` to control the explanation format (e.g., "for a 5th grader", "detailed", "short").
+- Use `prompt_version` to select a specific prompt template for answer/explanation synthesis.
+- The answer and explanation are LLM-generated if an LLM is available, otherwise a template is used.
 - The explanation is always generated from the trace for transparency and auditability.
-- You can customize the LLM prompt or explanation logic by extending the ResponseSynthesizer. 
+- You can customize the LLM prompt or explanation logic by extending the ResponseSynthesizer.
+- User feedback and prompt tuning will be supported in future phases. 
+
+# User Feedback API Usage
+
+## Endpoint
+POST /agent/feedback
+
+## Request Example
+```json
+{
+  "app_id": "app1",
+  "user_id": "user1",
+  "plan": {"plan": [ ... ], "traceability": true},
+  "execution_trace": [ ... ],
+  "answer": "...",
+  "explanation": "...",
+  "rating": 5,
+  "comments": "Very clear explanation!",
+  "explanation_style": "for a 5th grader",
+  "prompt_version": "v2"
+}
+```
+
+## Response Example
+```json
+{
+  "status": "success",
+  "message": "Feedback recorded."
+}
+```
+
+## Schema
+- `app_id`, `user_id`: For context and traceability
+- `plan`: The original agentic plan
+- `execution_trace`: List of step results from AgentExecutor
+- `answer`: The synthesized answer
+- `explanation`: The generated explanation
+- `rating`: User rating (1-5)
+- `comments`: (optional) User comments or suggestions
+- `explanation_style`: (optional) Explanation style used
+- `prompt_version`: (optional) Prompt version used
+
+## Best Practices
+- Encourage users to provide feedback on both answer quality and explanation clarity.
+- Use feedback to improve prompt templates and explanation logic.
+- Feedback is stored in `feedback.jsonl` for analysis; future versions will support DB integration and analytics.
+- Feedback can be used to auto-tune prompt selection or explanation style in future releases. 

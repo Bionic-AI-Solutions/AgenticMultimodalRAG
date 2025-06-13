@@ -74,6 +74,19 @@
 
 > **All deliverables for response synthesis and explanation are complete. The system is production-ready for agentic answer generation and explainability.**
 
+### Phase 5: Advanced Explanation, Prompt Tuning, and User Feedback
+- [x] **Advanced Explanation**
+  - [x] LLM-based, user-tunable explanation (explanation_style)
+  - [x] Prompt version selection (prompt_version)
+- [x] **Prompt Tuning**
+  - [x] Prompt template config and selection
+- [x] **User Feedback**
+  - [x] /agent/feedback endpoint
+  - [x] Feedback stored in feedback.jsonl for analysis
+  - [ ] DB/analytics integration (future)
+
+> **All deliverables for advanced explanation, prompt tuning, and user feedback are complete. System is ready for production feedback loop and analytics.**
+
 ## Next Steps
 - Advanced explanation (LLM-based, user-tunable)
 - Prompt tuning and feedback loop
@@ -86,6 +99,7 @@
 | 2     |    ✅      |        ✅         |
 | 3     |   (skip)   |        ✅         |
 | 4     |    ✅      |        ✅         |
+| 5     |    ✅      |        ✅         |
 
 ## Notes
 - All integration and unit tests (including advanced agentic behaviors: filter, aggregate, multi-hop, llm_call) are passing. Whisper model files must be in `/Volumes/ssd/mac/models/openai__whisper-base/`.
