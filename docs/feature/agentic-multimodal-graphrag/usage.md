@@ -208,6 +208,8 @@
   ENV=test poetry run pytest tests/integratione2e
   ```
 
+- All integration tests (including audio) pass with the current model loader and download script setup. Whisper model files must be in `/Volumes/ssd/mac/models/openai__whisper-base/`.
+
 ## 7. Recommended Extraction & Chunking Libraries/APIs (2024–2025)
 
 ### Extraction

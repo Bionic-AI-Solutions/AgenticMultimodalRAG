@@ -39,6 +39,7 @@ from transformers import AutoModel, AutoProcessor
 import tempfile
 from starlette.datastructures import UploadFile as StarletteUploadFile
 import json
+from app.api.agentic import router as agentic_router
 
 # Configure logging
 logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO"))
@@ -252,7 +253,7 @@ def get_whisper_model():
         raise FileNotFoundError(f"Whisper model file missing: {safetensors_path} or {bin_path}")
     try:
         import whisper
-        model = whisper.load_model("base", download_root=model_dir)
+        model = whisper.load_model("base", download_root=local_path)
         return model
     except Exception as e:
         logger.error(f"Failed to load Whisper model from local cache: {e}")
@@ -1139,4 +1140,6 @@ async def query_graph(request: Request):
     except Exception as e:
         tb = traceback.format_exc()
         logger.error(f"/query/graph failed: {e}\n{tb}")
-        return JSONResponse(status_code=500, content={"status": "error", "message": str(e)}) 
+        return JSONResponse(status_code=500, content={"status": "error", "message": str(e)})
+
+app.include_router(agentic_router) 

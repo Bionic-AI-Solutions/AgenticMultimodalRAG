@@ -1,0 +1,6 @@
+---
+description: 
+globs: 
+alwaysApply: true
+---
+please use the conda environment 'test' for this project always. if the environment is absent, please create the sme for python 3.11

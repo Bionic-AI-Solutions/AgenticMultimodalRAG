@@ -170,10 +170,17 @@ for model in MODELS:
         from huggingface_hub import HfApi
         api = HfApi()
         repo_files = api.list_repo_files(model["name"])
-        # Only require files that actually exist in the repo and are needed for colpali/transformers
         model["essential_files"] = [
             f for f in repo_files if f.endswith(('.safetensors', '.json')) or f == 'README.md'
         ]
+    if model["name"] == "openai/whisper-base":
+        # Ensure both .safetensors and .bin are considered essential
+        from huggingface_hub import HfApi
+        api = HfApi()
+        repo_files = api.list_repo_files(model["name"])
+        # Only add if present in repo
+        whisper_essentials = [f for f in repo_files if f in ("model.safetensors", "pytorch_model.bin")]
+        model["essential_files"] = whisper_essentials
 
 def get_system_info() -> Dict[str, Any]:
     """Get system information for metadata"""

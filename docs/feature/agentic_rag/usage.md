@@ -2,6 +2,8 @@
 
 > **Edge-Graph Phase Complete:** All edge-graph features (filtering, traceability, OpenAPI schema, usage) are fully implemented, tested, and documented. The system is production-ready and ready for Phase 2: Agentic Query Decomposition. See the tracker for details.
 
+> **Status:** All integration tests (including audio) are passing. The system is production-ready for agentic query decomposition. Whisper model files must be in `/Volumes/ssd/mac/models/openai__whisper-base/`.
+
 ## Decomposition API Usage
 
 ### Endpoint

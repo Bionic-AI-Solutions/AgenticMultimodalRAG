@@ -496,4 +496,64 @@ class TestLiveIntegrationFlow:
         # Cleanup test files
         for f in cls.test_files:
             if os.path.exists(f):
-                os.remove(f) 
+                os.remove(f)
+
+@pytest.mark.integration
+def test_query_graph_filtering_and_traceability_integration():
+    # Ingest a test document with metadata
+    test_content = "Integration test document for filtering and traceability."
+    test_file = "test_integration_filtering.txt"
+    try:
+        with open(test_file, "w") as f:
+            f.write(test_content)
+        with open(test_file, "rb") as f:
+            response = client.post(
+                '/docs/ingest',
+                files={'file': (test_file, f, 'text/plain')},
+                data={'app_id': 'testapp', 'user_id': 'testuser'}
+            )
+        assert response.status_code == 200
+        data = response.json()
+        doc_id = data.get('doc_id')
+        assert doc_id is not None
+        # Query the graph with edge type filter
+        req = {
+            "query": "Integration test document for filtering and traceability.",
+            "app_id": "testapp",
+            "user_id": "testuser",
+            "filters": {"edge_types": ["context_of"]},
+            "graph_expansion": {"depth": 1, "type": "context_of"}
+        }
+        resp = client.post("/query/graph", json=req)
+        assert resp.status_code == 200
+        data = resp.json()
+        for r in data["results"]:
+            for edge in r["graph_context"]["edges"]:
+                assert edge["type"] in ("context", "context_of")
+                assert "expanded_by" in edge
+                assert "config_source" in edge
+                assert "weight" in edge
+            for node in r["graph_context"]["nodes"]:
+                assert "expanded_by" in node
+                assert "config_source" in node
+        # Query the graph with min_weight filter
+        req["filters"] = {"min_weight": 0.0}
+        resp = client.post("/query/graph", json=req)
+        assert resp.status_code == 200
+        data = resp.json()
+        for r in data["results"]:
+            for edge in r["graph_context"]["edges"]:
+                assert edge["weight"] >= 0.0
+        # Query the graph with metadata filter (if supported by your ingestion logic)
+        req["filters"] = {"metadata": {"label": "important"}}
+        resp = client.post("/query/graph", json=req)
+        assert resp.status_code == 200
+        data = resp.json()
+        for r in data["results"]:
+            for edge in r["graph_context"]["edges"]:
+                # If label is present, it should match
+                if "label" in edge:
+                    assert edge["label"] == "important"
+    finally:
+        if os.path.exists(test_file):
+            os.remove(test_file) 

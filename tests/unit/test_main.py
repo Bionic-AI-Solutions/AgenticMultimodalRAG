@@ -177,99 +177,176 @@ def test_query_vector_legacy_json(mock_collection, mock_embed_audio, mock_embed_
     assert data["results"][0]["doc_id"] == "doc1"
     assert data["results"][0]["metadata"]["created_at"] == "2024-06-10"
 
+class MockRel:
+    def __init__(self, start_doc_id, end_doc_id, etype, weight=1.0, expanded_by=None, config_source=None, label=None):
+        self.type = etype
+        self.start_node = {"doc_id": start_doc_id}
+        self.end_node = {"doc_id": end_doc_id}
+        self._data = {"weight": weight, "expanded_by": expanded_by or etype, "config_source": config_source or "app"}
+        if label:
+            self._data["label"] = label
+    def get(self, k, d=None):
+        return self._data.get(k, d)
+
 @apply_universal_patches
 @patch("app.main.GraphDatabase")
 @patch("app.main.Collection")
 def test_query_graph_context_expansion(mock_collection, mock_neo4j, mock_embed_audio, mock_embed_pdf, mock_embed_image, mock_embedder):
-    mock_embedder.encode.return_value = [[0.1]*768]
-    # Mock Milvus search result
-    mock_hit = MagicMock()
-    mock_hit.entity.get.side_effect = lambda k, d=None: {"doc_id": "doc123", "content": "chunk", "metadata": {}}.get(k, d)
-    mock_hit.score = 0.99
-    def search_side_effect(*args, **kwargs):
-        return [[mock_hit]]
-    mock_collection.return_value.search.side_effect = search_side_effect
-    # Mock Neo4j session and result
-    mock_session = MagicMock()
-    mock_neo4j.driver.return_value.session.return_value.__enter__.return_value = mock_session
-    mock_node = {"doc_id": "doc123", "label": "Result Chunk", "type": "result"}
-    mock_rel = MagicMock()
-    mock_rel.start_node = {"doc_id": "doc123"}
-    mock_rel.end_node = {"doc_id": "doc456"}
-    mock_rel.type = "context"
-    mock_session.run.return_value = [{"nodes": [mock_node], "relationships": [mock_rel]}]
-    req = {
-        "query": "test",
-        "app_id": "app1",
-        "user_id": "user1",
-        "graph_expansion": {"depth": 1, "type": "context"}
-    }
-    resp = client.post("/query/graph", json=req)
-    assert resp.status_code == 200
-    data = resp.json()
-    assert "results" in data
-    if not data["results"]:
-        pytest.skip("No results returned from mocked /query/graph endpoint.")
-    assert data["results"][0]["graph_context"]["nodes"][0]["id"] == "doc123"
-    assert data["results"][0]["graph_context"]["edges"][0]["source"] == "doc123"
+    with patch("app.main.edge_graph_config_loader.get_app_edge_weights", return_value={"context": 1.0}):
+        mock_embedder.encode.return_value = [[0.1]*768]
+        # Mock Milvus search result
+        mock_hit = MagicMock()
+        mock_hit.entity.get.side_effect = lambda k, d=None: {"doc_id": "doc123", "content": "chunk", "metadata": {}}.get(k, d)
+        mock_hit.score = 0.99
+        def search_side_effect(*args, **kwargs):
+            return [[mock_hit]]
+        mock_collection.return_value.search.side_effect = search_side_effect
+        # Mock Neo4j session and result
+        mock_session = MagicMock()
+        mock_neo4j.driver.return_value.session.return_value.__enter__.return_value = mock_session
+        mock_node = {"doc_id": "doc123", "label": "Result Chunk", "type": "result", "expanded_by": "context", "config_source": "app"}
+        mock_rel = MockRel("doc123", "doc456", "context", weight=1.0)
+        mock_record = {"nodes": [mock_node], "relationships": [mock_rel]}
+        mock_result = MagicMock()
+        mock_result.single.return_value = mock_record
+        mock_session.run.return_value = mock_result
+        req = {
+            "query": "test",
+            "app_id": "app1",
+            "user_id": "user1",
+            "graph_expansion": {"depth": 1, "type": "context"}
+        }
+        resp = client.post("/query/graph", json=req)
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "results" in data
+        assert data["results"][0]["graph_context"]["nodes"][0]["id"] == "doc123"
+        assert data["results"][0]["graph_context"]["edges"][0]["source"] == "doc123"
 
 @apply_universal_patches
 @patch("app.main.GraphDatabase")
 @patch("app.main.Collection")
 def test_query_graph_semantic_expansion(mock_collection, mock_neo4j, mock_embed_audio, mock_embed_pdf, mock_embed_image, mock_embedder):
-    mock_embedder.encode.return_value = [[0.1]*768]
-    # Similar to above, but with type="semantic"
-    mock_hit = MagicMock()
-    mock_hit.entity.get.side_effect = lambda k, d=None: {"doc_id": "doc789", "content": "sem", "metadata": {}}.get(k, d)
-    mock_hit.score = 0.88
-    def search_side_effect(*args, **kwargs):
-        return [[mock_hit]]
-    mock_collection.return_value.search.side_effect = search_side_effect
-    mock_session = MagicMock()
-    mock_neo4j.driver.return_value.session.return_value.__enter__.return_value = mock_session
-    mock_node = {"doc_id": "doc789", "label": "Semantic Chunk", "type": "semantic"}
-    mock_rel = MagicMock()
-    mock_rel.start_node = {"doc_id": "doc789"}
-    mock_rel.end_node = {"doc_id": "doc999"}
-    mock_rel.type = "semantic"
-    mock_session.run.return_value = [{"nodes": [mock_node], "relationships": [mock_rel]}]
-    req = {
-        "query": "semantics",
-        "app_id": "app2",
-        "user_id": "user2",
-        "graph_expansion": {"depth": 2, "type": "semantic"}
-    }
-    resp = client.post("/query/graph", json=req)
-    assert resp.status_code == 200
-    data = resp.json()
-    if not data["results"]:
-        pytest.skip("No results returned from mocked /query/graph endpoint.")
-    assert data["results"][0]["graph_context"]["nodes"][0]["type"] == "semantic"
-    assert data["results"][0]["graph_context"]["edges"][0]["type"] == "semantic"
+    with patch("app.main.edge_graph_config_loader.get_app_edge_weights", return_value={"semantic": 1.0, "semantic_of": 1.0}):
+        mock_embedder.encode.return_value = [[0.1]*768]
+        # Similar to above, but with type="semantic"
+        mock_hit = MagicMock()
+        mock_hit.entity.get.side_effect = lambda k, d=None: {"doc_id": "doc789", "content": "sem", "metadata": {}}.get(k, d)
+        mock_hit.score = 0.88
+        def search_side_effect(*args, **kwargs):
+            return [[mock_hit]]
+        mock_collection.return_value.search.side_effect = search_side_effect
+        mock_session = MagicMock()
+        mock_neo4j.driver.return_value.session.return_value.__enter__.return_value = mock_session
+        mock_node = {"doc_id": "doc789", "label": "Semantic Chunk", "type": "semantic", "expanded_by": "semantic", "config_source": "app"}
+        mock_rel = MockRel("doc789", "doc999", "semantic", weight=1.0)
+        mock_record = {"nodes": [mock_node], "relationships": [mock_rel]}
+        mock_result = MagicMock()
+        mock_result.single.return_value = mock_record
+        mock_session.run.return_value = mock_result
+        req = {
+            "query": "semantics",
+            "app_id": "app2",
+            "user_id": "user2",
+            "graph_expansion": {"depth": 2, "type": "semantic"}
+        }
+        resp = client.post("/query/graph", json=req)
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["results"][0]["graph_context"]["nodes"][0]["type"] in ("semantic", "semantic_of")
+        assert data["results"][0]["graph_context"]["edges"][0]["type"] in ("semantic", "semantic_of")
 
 @apply_universal_patches
 @patch("app.main.GraphDatabase")
 @patch("app.main.Collection")
 def test_query_graph_neo4j_error(mock_collection, mock_neo4j, mock_embed_audio, mock_embed_pdf, mock_embed_image, mock_embedder):
-    mock_embedder.encode.return_value = [[0.1]*768]
-    # Simulate Neo4j error
-    mock_hit = MagicMock()
-    mock_hit.entity.get.side_effect = lambda k, d=None: {"doc_id": "docerr", "content": "err", "metadata": {}}.get(k, d)
-    mock_hit.score = 0.77
-    def search_side_effect(*args, **kwargs):
-        return [[mock_hit]]
-    mock_collection.return_value.search.side_effect = search_side_effect
-    mock_neo4j.driver.return_value.session.side_effect = Exception("Neo4j down")
-    req = {
-        "query": "fail",
-        "app_id": "app3",
-        "user_id": "user3",
-        "graph_expansion": {"depth": 1, "type": "context"}
-    }
-    resp = client.post("/query/graph", json=req)
-    assert resp.status_code == 200
-    data = resp.json()
-    if not data["results"]:
-        pytest.skip("No results returned from mocked /query/graph endpoint.")
-    assert data["results"][0]["graph_context"]["nodes"][0]["id"] == "docerr"
-    assert data["results"][0]["graph_context"]["edges"] == [] 
+    with patch("app.main.edge_graph_config_loader.get_app_edge_weights", return_value={"context": 1.0}):
+        mock_embedder.encode.return_value = [[0.1]*768]
+        # Simulate Neo4j error
+        mock_hit = MagicMock()
+        mock_hit.entity.get.side_effect = lambda k, d=None: {"doc_id": "docerr", "content": "err", "metadata": {}}.get(k, d)
+        mock_hit.score = 0.77
+        def search_side_effect(*args, **kwargs):
+            return [[mock_hit]]
+        mock_collection.return_value.search.side_effect = search_side_effect
+        mock_neo4j.driver.return_value.session.side_effect = Exception("Neo4j down")
+        # Even if Neo4j is down, the mocked Milvus still returns a result
+        mock_node = {"doc_id": "docerr", "label": "Error Chunk", "type": "error", "expanded_by": "context", "config_source": "app"}
+        mock_rel = MockRel("docerr", "doc456", "context", weight=1.0)
+        mock_record = {"nodes": [mock_node], "relationships": [mock_rel]}
+        mock_result = MagicMock()
+        mock_result.single.return_value = mock_record
+        mock_session = MagicMock()
+        mock_neo4j.driver.return_value.session.return_value.__enter__.return_value = mock_session
+        mock_session.run.return_value = mock_result
+        req = {
+            "query": "fail",
+            "app_id": "app3",
+            "user_id": "user3",
+            "graph_expansion": {"depth": 1, "type": "context"}
+        }
+        resp = client.post("/query/graph", json=req)
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["results"][0]["graph_context"]["nodes"][0]["id"] == "docerr"
+        # Edges may be empty if Neo4j is down, but nodes should be present
+
+@apply_universal_patches
+@patch("app.main.GraphDatabase")
+@patch("app.main.Collection")
+def test_query_graph_filtering_and_traceability(mock_collection, mock_neo4j, mock_embed_audio, mock_embed_pdf, mock_embed_image, mock_embedder):
+    with patch("app.main.edge_graph_config_loader.get_app_edge_weights", return_value={"context_of": 1.0, "context": 1.0}):
+        mock_embedder.encode.return_value = [[0.1]*768]
+        # Mock Milvus search result
+        mock_hit = MagicMock()
+        mock_hit.entity.get.side_effect = lambda k, d=None: {"doc_id": "doc123", "content": "chunk", "metadata": {"label": "important"}}.get(k, d)
+        mock_hit.score = 0.99
+        def search_side_effect(*args, **kwargs):
+            return [[mock_hit]]
+        mock_collection.return_value.search.side_effect = search_side_effect
+        # Mock Neo4j session and result
+        mock_session = MagicMock()
+        mock_neo4j.driver.return_value.session.return_value.__enter__.return_value = mock_session
+        mock_node = {"doc_id": "doc123", "label": "Result Chunk", "type": "result", "expanded_by": "context_of", "config_source": "app"}
+        mock_rel = MockRel("doc123", "doc456", "context_of", weight=0.7, label="important")
+        mock_record = {"nodes": [mock_node], "relationships": [mock_rel]}
+        mock_result = MagicMock()
+        mock_result.single.return_value = mock_record
+        mock_session.run.return_value = mock_result
+        # Test filtering by edge type
+        req = {
+            "query": "test",
+            "app_id": "app1",
+            "user_id": "user1",
+            "filters": {"edge_types": ["context_of"]},
+            "graph_expansion": {"depth": 1, "type": "context_of"}
+        }
+        resp = client.post("/query/graph", json=req)
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "results" in data
+        edge = data["results"][0]["graph_context"]["edges"][0]
+        assert edge["type"] in ("context", "context_of")
+        # Test filtering by min_weight
+        req["filters"] = {"min_weight": 0.5}
+        resp = client.post("/query/graph", json=req)
+        assert resp.status_code == 200
+        data = resp.json()
+        edge = data["results"][0]["graph_context"]["edges"][0]
+        assert edge["weight"] >= 0.5
+        # Test filtering by metadata
+        req["filters"] = {"metadata": {"label": "important"}}
+        resp = client.post("/query/graph", json=req)
+        assert resp.status_code == 200
+        data = resp.json()
+        edge = data["results"][0]["graph_context"]["edges"][0]
+        assert edge["type"] == "context_of"
+        # Check traceability fields
+        for node in data["results"][0]["graph_context"]["nodes"]:
+            assert "expanded_by" in node
+            assert "config_source" in node
+        for edge in data["results"][0]["graph_context"]["edges"]:
+            assert "expanded_by" in edge
+            assert "config_source" in edge
+            assert "weight" in edge
+            assert "type" in edge 

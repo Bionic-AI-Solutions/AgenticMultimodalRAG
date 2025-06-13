@@ -1,0 +1,209 @@
+============================= test session starts ==============================
+platform darwin -- Python 3.11.13, pytest-8.4.0, pluggy-1.6.0
+rootdir: /Users/salilkadam/Downloads/FastAPI/RAG
+configfile: pyproject.toml
+plugins: anyio-4.9.0
+collected 50 items
+
+tests/integratione2e/test_ingest.py ............s.....s......            [ 50%]
+tests/unit/test_edge_graph_config.py ..s...                              [ 62%]
+tests/unit/test_main.py ...............FFFF                              [100%]
+
+=================================== FAILURES ===================================
+______________________ test_query_graph_context_expansion ______________________
+
+mock_collection = <MagicMock name='Collection' id='13640326032'>
+mock_neo4j = <MagicMock name='GraphDatabase' id='13640683664'>
+mock_embed_audio = <MagicMock name='embed_audio_whisper' id='13640688528'>
+mock_embed_pdf = <MagicMock name='embed_pdf_nomic' id='13640692560'>
+mock_embed_image = <MagicMock name='embed_image_nomic' id='13640697680'>
+mock_embedder = <MagicMock name='jina_embedder' id='13640697744'>
+
+    @apply_universal_patches
+    @patch("app.main.GraphDatabase")
+    @patch("app.main.Collection")
+    def test_query_graph_context_expansion(mock_collection, mock_neo4j, mock_embed_audio, mock_embed_pdf, mock_embed_image, mock_embedder):
+        mock_embedder.encode.return_value = [[0.1]*768]
+        # Mock Milvus search result
+        mock_hit = MagicMock()
+        mock_hit.entity.get.side_effect = lambda k, d=None: {"doc_id": "doc123", "content": "chunk", "metadata": {}}.get(k, d)
+        mock_hit.score = 0.99
+        def search_side_effect(*args, **kwargs):
+            return [[mock_hit]]
+        mock_collection.return_value.search.side_effect = search_side_effect
+        # Mock Neo4j session and result
+        mock_session = MagicMock()
+        mock_neo4j.driver.return_value.session.return_value.__enter__.return_value = mock_session
+        mock_node = {"doc_id": "doc123", "label": "Result Chunk", "type": "result", "expanded_by": "context", "config_source": "app"}
+        mock_rel = MagicMock()
+        mock_rel.start_node = {"doc_id": "doc123"}
+        mock_rel.end_node = {"doc_id": "doc456"}
+        mock_rel.type = "context"
+        mock_rel.get.side_effect = lambda k, d=None: {"weight": 1.0, "expanded_by": "context", "config_source": "app"}.get(k, d)
+        mock_session.run.return_value = [{"nodes": [mock_node], "relationships": [mock_rel]}]
+        req = {
+            "query": "test",
+            "app_id": "app1",
+            "user_id": "user1",
+            "graph_expansion": {"depth": 1, "type": "context"}
+        }
+        resp = client.post("/query/graph", json=req)
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "results" in data
+>       assert data["results"][0]["graph_context"]["nodes"][0]["id"] == "doc123"
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       IndexError: list index out of range
+
+tests/unit/test_main.py:212: IndexError
+------------------------------ Captured log call -------------------------------
+WARNING  app.main:main.py:1079 Collection app1_user1 dim mismatch. Dropping and recreating.
+WARNING  neo4j.notifications:result.py:337 Received notification from DBMS server: {severity: WARNING} {code: Neo.ClientNotification.Statement.UnknownPropertyKeyWarning} {category: UNRECOGNIZED} {title: The provided property key is not in the database} {description: One of the property names in your query is not available in the database, make sure you didn't misspell it or that the label is available when you run this statement in your application (the missing property name is: doc_id)} {position: line: 2, column: 21, offset: 21} for query: '\n    MATCH (n:Chunk {doc_id: $doc_id})\n    CALL apoc.path.subgraphAll(n, {maxLevel: $depth})\n    YIELD nodes, relationships\n    RETURN nodes, relationships\n    '
+WARNING  neo4j.notifications:result.py:337 Received notification from DBMS server: {severity: WARNING} {code: Neo.ClientNotification.Statement.UnknownLabelWarning} {category: UNRECOGNIZED} {title: The provided label is not in the database.} {description: One of the labels in your query is not available in the database, make sure you didn't misspell it or that the label is available when you run this statement in your application (the missing label name is: Chunk)} {position: line: 2, column: 14, offset: 14} for query: '\n    MATCH (n:Chunk {doc_id: $doc_id})\n    CALL apoc.path.subgraphAll(n, {maxLevel: $depth})\n    YIELD nodes, relationships\n    RETURN nodes, relationships\n    '
+_____________________ test_query_graph_semantic_expansion ______________________
+
+mock_collection = <MagicMock name='Collection' id='6439479248'>
+mock_neo4j = <MagicMock name='GraphDatabase' id='13639030864'>
+mock_embed_audio = <MagicMock name='embed_audio_whisper' id='13639031184'>
+mock_embed_pdf = <MagicMock name='embed_pdf_nomic' id='13638793168'>
+mock_embed_image = <MagicMock name='embed_image_nomic' id='13640552464'>
+mock_embedder = <MagicMock name='jina_embedder' id='13638775120'>
+
+    @apply_universal_patches
+    @patch("app.main.GraphDatabase")
+    @patch("app.main.Collection")
+    def test_query_graph_semantic_expansion(mock_collection, mock_neo4j, mock_embed_audio, mock_embed_pdf, mock_embed_image, mock_embedder):
+        mock_embedder.encode.return_value = [[0.1]*768]
+        # Similar to above, but with type="semantic"
+        mock_hit = MagicMock()
+        mock_hit.entity.get.side_effect = lambda k, d=None: {"doc_id": "doc789", "content": "sem", "metadata": {}}.get(k, d)
+        mock_hit.score = 0.88
+        def search_side_effect(*args, **kwargs):
+            return [[mock_hit]]
+        mock_collection.return_value.search.side_effect = search_side_effect
+        mock_session = MagicMock()
+        mock_neo4j.driver.return_value.session.return_value.__enter__.return_value = mock_session
+        mock_node = {"doc_id": "doc789", "label": "Semantic Chunk", "type": "semantic", "expanded_by": "semantic", "config_source": "app"}
+        mock_rel = MagicMock()
+        mock_rel.start_node = {"doc_id": "doc789"}
+        mock_rel.end_node = {"doc_id": "doc999"}
+        mock_rel.type = "semantic"
+        mock_rel.get.side_effect = lambda k, d=None: {"weight": 1.0, "expanded_by": "semantic", "config_source": "app"}.get(k, d)
+        mock_session.run.return_value = [{"nodes": [mock_node], "relationships": [mock_rel]}]
+        req = {
+            "query": "semantics",
+            "app_id": "app2",
+            "user_id": "user2",
+            "graph_expansion": {"depth": 2, "type": "semantic"}
+        }
+        resp = client.post("/query/graph", json=req)
+        assert resp.status_code == 200
+        data = resp.json()
+>       assert data["results"][0]["graph_context"]["nodes"][0]["type"] in ("semantic", "semantic_of")
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       IndexError: list index out of range
+
+tests/unit/test_main.py:245: IndexError
+------------------------------ Captured log call -------------------------------
+WARNING  app.main:main.py:1079 Collection app2_user2 dim mismatch. Dropping and recreating.
+WARNING  neo4j.notifications:result.py:337 Received notification from DBMS server: {severity: WARNING} {code: Neo.ClientNotification.Statement.UnknownPropertyKeyWarning} {category: UNRECOGNIZED} {title: The provided property key is not in the database} {description: One of the property names in your query is not available in the database, make sure you didn't misspell it or that the label is available when you run this statement in your application (the missing property name is: doc_id)} {position: line: 2, column: 21, offset: 21} for query: '\n    MATCH (n:Chunk {doc_id: $doc_id})\n    CALL apoc.path.subgraphAll(n, {maxLevel: $depth})\n    YIELD nodes, relationships\n    RETURN nodes, relationships\n    '
+WARNING  neo4j.notifications:result.py:337 Received notification from DBMS server: {severity: WARNING} {code: Neo.ClientNotification.Statement.UnknownLabelWarning} {category: UNRECOGNIZED} {title: The provided label is not in the database.} {description: One of the labels in your query is not available in the database, make sure you didn't misspell it or that the label is available when you run this statement in your application (the missing label name is: Chunk)} {position: line: 2, column: 14, offset: 14} for query: '\n    MATCH (n:Chunk {doc_id: $doc_id})\n    CALL apoc.path.subgraphAll(n, {maxLevel: $depth})\n    YIELD nodes, relationships\n    RETURN nodes, relationships\n    '
+_________________________ test_query_graph_neo4j_error _________________________
+
+mock_collection = <MagicMock name='Collection' id='6003210320'>
+mock_neo4j = <MagicMock name='GraphDatabase' id='13642407248'>
+mock_embed_audio = <MagicMock name='embed_audio_whisper' id='13642406544'>
+mock_embed_pdf = <MagicMock name='embed_pdf_nomic' id='13642401360'>
+mock_embed_image = <MagicMock name='embed_image_nomic' id='13642664784'>
+mock_embedder = <MagicMock name='jina_embedder' id='13642676432'>
+
+    @apply_universal_patches
+    @patch("app.main.GraphDatabase")
+    @patch("app.main.Collection")
+    def test_query_graph_neo4j_error(mock_collection, mock_neo4j, mock_embed_audio, mock_embed_pdf, mock_embed_image, mock_embedder):
+        mock_embedder.encode.return_value = [[0.1]*768]
+        # Simulate Neo4j error
+        mock_hit = MagicMock()
+        mock_hit.entity.get.side_effect = lambda k, d=None: {"doc_id": "docerr", "content": "err", "metadata": {}}.get(k, d)
+        mock_hit.score = 0.77
+        def search_side_effect(*args, **kwargs):
+            return [[mock_hit]]
+        mock_collection.return_value.search.side_effect = search_side_effect
+        mock_neo4j.driver.return_value.session.side_effect = Exception("Neo4j down")
+        # Even if Neo4j is down, the mocked Milvus still returns a result
+        req = {
+            "query": "fail",
+            "app_id": "app3",
+            "user_id": "user3",
+            "graph_expansion": {"depth": 1, "type": "context"}
+        }
+        resp = client.post("/query/graph", json=req)
+        assert resp.status_code == 200
+        data = resp.json()
+>       assert data["results"][0]["graph_context"]["nodes"][0]["id"] == "docerr"
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       IndexError: list index out of range
+
+tests/unit/test_main.py:271: IndexError
+------------------------------ Captured log call -------------------------------
+WARNING  app.main:main.py:1079 Collection app3_user3 dim mismatch. Dropping and recreating.
+WARNING  neo4j.notifications:result.py:337 Received notification from DBMS server: {severity: WARNING} {code: Neo.ClientNotification.Statement.UnknownPropertyKeyWarning} {category: UNRECOGNIZED} {title: The provided property key is not in the database} {description: One of the property names in your query is not available in the database, make sure you didn't misspell it or that the label is available when you run this statement in your application (the missing property name is: doc_id)} {position: line: 2, column: 21, offset: 21} for query: '\n    MATCH (n:Chunk {doc_id: $doc_id})\n    CALL apoc.path.subgraphAll(n, {maxLevel: $depth})\n    YIELD nodes, relationships\n    RETURN nodes, relationships\n    '
+WARNING  neo4j.notifications:result.py:337 Received notification from DBMS server: {severity: WARNING} {code: Neo.ClientNotification.Statement.UnknownLabelWarning} {category: UNRECOGNIZED} {title: The provided label is not in the database.} {description: One of the labels in your query is not available in the database, make sure you didn't misspell it or that the label is available when you run this statement in your application (the missing label name is: Chunk)} {position: line: 2, column: 14, offset: 14} for query: '\n    MATCH (n:Chunk {doc_id: $doc_id})\n    CALL apoc.path.subgraphAll(n, {maxLevel: $depth})\n    YIELD nodes, relationships\n    RETURN nodes, relationships\n    '
+_________________ test_query_graph_filtering_and_traceability __________________
+
+mock_collection = <MagicMock name='Collection' id='13640509520'>
+mock_neo4j = <MagicMock name='GraphDatabase' id='13640199824'>
+mock_embed_audio = <MagicMock name='embed_audio_whisper' id='13638918928'>
+mock_embed_pdf = <MagicMock name='embed_pdf_nomic' id='13638892048'>
+mock_embed_image = <MagicMock name='embed_image_nomic' id='31979604048'>
+mock_embedder = <MagicMock name='jina_embedder' id='31979609936'>
+
+    @apply_universal_patches
+    @patch("app.main.GraphDatabase")
+    @patch("app.main.Collection")
+    def test_query_graph_filtering_and_traceability(mock_collection, mock_neo4j, mock_embed_audio, mock_embed_pdf, mock_embed_image, mock_embedder):
+        mock_embedder.encode.return_value = [[0.1]*768]
+        # Mock Milvus search result
+        mock_hit = MagicMock()
+        mock_hit.entity.get.side_effect = lambda k, d=None: {"doc_id": "doc123", "content": "chunk", "metadata": {"label": "important"}}.get(k, d)
+        mock_hit.score = 0.99
+        def search_side_effect(*args, **kwargs):
+            return [[mock_hit]]
+        mock_collection.return_value.search.side_effect = search_side_effect
+        # Mock Neo4j session and result
+        mock_session = MagicMock()
+        mock_neo4j.driver.return_value.session.return_value.__enter__.return_value = mock_session
+        mock_node = {"doc_id": "doc123", "label": "Result Chunk", "type": "result", "expanded_by": "context_of", "config_source": "app"}
+        mock_rel = MagicMock()
+        mock_rel.start_node = {"doc_id": "doc123"}
+        mock_rel.end_node = {"doc_id": "doc456"}
+        mock_rel.type = "context_of"
+        mock_rel.get.side_effect = lambda k, d=None: {"weight": 0.7, "expanded_by": "context_of", "config_source": "app", "label": "important"}.get(k, d)
+        mock_session.run.return_value = [{"nodes": [mock_node], "relationships": [mock_rel]}]
+        # Test filtering by edge type
+        req = {
+            "query": "test",
+            "app_id": "app1",
+            "user_id": "user1",
+            "filters": {"edge_types": ["context_of"]},
+            "graph_expansion": {"depth": 1, "type": "context_of"}
+        }
+        resp = client.post("/query/graph", json=req)
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "results" in data
+>       edge = data["results"][0]["graph_context"]["edges"][0]
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       IndexError: list index out of range
+
+tests/unit/test_main.py:308: IndexError
+------------------------------ Captured log call -------------------------------
+WARNING  app.main:main.py:1079 Collection app1_user1 dim mismatch. Dropping and recreating.
+WARNING  neo4j.notifications:result.py:337 Received notification from DBMS server: {severity: WARNING} {code: Neo.ClientNotification.Statement.UnknownPropertyKeyWarning} {category: UNRECOGNIZED} {title: The provided property key is not in the database} {description: One of the property names in your query is not available in the database, make sure you didn't misspell it or that the label is available when you run this statement in your application (the missing property name is: doc_id)} {position: line: 2, column: 21, offset: 21} for query: '\n    MATCH (n:Chunk {doc_id: $doc_id})\n    CALL apoc.path.subgraphAll(n, {maxLevel: $depth})\n    YIELD nodes, relationships\n    RETURN nodes, relationships\n    '
+WARNING  neo4j.notifications:result.py:337 Received notification from DBMS server: {severity: WARNING} {code: Neo.ClientNotification.Statement.UnknownLabelWarning} {category: UNRECOGNIZED} {title: The provided label is not in the database.} {description: One of the labels in your query is not available in the database, make sure you didn't misspell it or that the label is available when you run this statement in your application (the missing label name is: Chunk)} {position: line: 2, column: 14, offset: 14} for query: '\n    MATCH (n:Chunk {doc_id: $doc_id})\n    CALL apoc.path.subgraphAll(n, {maxLevel: $depth})\n    YIELD nodes, relationships\n    RETURN nodes, relationships\n    '
+=========================== short test summary info ============================
+FAILED tests/unit/test_main.py::test_query_graph_context_expansion - IndexErr...
+FAILED tests/unit/test_main.py::test_query_graph_semantic_expansion - IndexEr...
+FAILED tests/unit/test_main.py::test_query_graph_neo4j_error - IndexError: li...
+FAILED tests/unit/test_main.py::test_query_graph_filtering_and_traceability
+======= 4 failed, 43 passed, 3 skipped, 19 warnings in 193.63s (0:03:13) =======

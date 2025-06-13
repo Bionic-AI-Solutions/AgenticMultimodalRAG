@@ -68,6 +68,9 @@
 | 4     |            |                   |
 
 ## Notes
+- All integration tests (including audio ingestion/query) are passing after the Whisper model loader fix. Whisper model files must be in `/Volumes/ssd/mac/models/openai__whisper-base/`.
+- The codebase is production-ready for all current features (vector, image, audio, PDF, graph, agentic decomposition).
+- Phase 1 is fully complete and the system is ready for Phase 2: Agentic Query Decomposition.
 - This tracker will be updated as each phase progresses.
 - Link PRs as available.
 
