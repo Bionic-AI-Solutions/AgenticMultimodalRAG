@@ -107,6 +107,35 @@ This phase empowers the agent to interact with the knowledge graph dynamically.
   -   Integration tests for multi-step queries that require dynamic graph traversal.
   -   E2E tests simulating a user asking a complex question that requires several steps to answer.
 
+### Phase 3b: Advanced Agentic Tool Types & Behaviors
+
+This phase expands the agentic system to support:
+- **tool_call**: Call external APIs/tools (web search, calculator, plugins, etc.)
+- **rerank**: Rerank results using a model or custom logic
+- **filter**: Filter results based on criteria (metadata, score, etc.)
+- **conditional**: Branch logic (if/else) based on previous step results
+- **aggregate**: Combine results from multiple steps
+- **multi-hop**: Traverse the graph or knowledge base in multiple, dependent steps
+- **llm_call**: Use an LLM for synthesis, summarization, or reasoning at any step
+
+#### Implementation Steps
+1. **Schema & Plan Update**
+   - Extend DecompositionStep/Plan schema to support new step types and control flow
+   - Add parameters for tool selection, conditionals, aggregation, etc.
+2. **AgentExecutor Extensions**
+   - Implement logic for each new step type in execute_step
+   - Add support for conditional branching, aggregation, and multi-hop
+   - Integrate external tool APIs as needed
+   - Add error handling, retries, and alternative paths
+3. **Testing**
+   - Unit and integration tests for each new tool type/behavior
+   - E2E tests for complex, multi-step agentic plans
+4. **Documentation**
+   - Update usage, design, and tracker docs for new behaviors
+   - Provide examples for each tool type and control flow
+
+> **Note:** The system is designed for extensibility; new tool types and behaviors can be added with minimal changes. Full test coverage will be maintained.
+
 ### Phase 4: Response Synthesis and Explanation
 The final phase focuses on generating a coherent and explainable answer.
 

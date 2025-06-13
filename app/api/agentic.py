@@ -3,10 +3,12 @@ from pydantic import BaseModel
 from typing import Any, Dict, Optional
 from app.agentic.query_decomposer import QueryDecomposer
 from app.agentic.models import DecompositionPlan
+from app.agentic.agent_executor import AgentExecutor
 
 router = APIRouter()
 
 decomposer = QueryDecomposer()
+executor = AgentExecutor()
 
 class DecomposeRequest(BaseModel):
     query: str
@@ -26,4 +28,25 @@ def decompose_query(request: DecomposeRequest = Body(...)):
         user_id=request.user_id,
         modality=request.modality,
         context=request.context or {}
-    ) 
+    )
+
+# --- New: Agentic Plan Execution Endpoint ---
+from fastapi import Request
+from fastapi.responses import JSONResponse
+
+@router.post("/agent/execute", tags=["Agentic"], summary="Execute an agentic plan (multi-step, multimodal, tool use)")
+async def execute_agentic_plan(request: Request):
+    """
+    Execute a DecompositionPlan using the AgentExecutor. Returns the final result and execution trace.
+    """
+    body = await request.json()
+    # Accept either a full plan or a user query (scaffold for future)
+    if "plan" in body:
+        plan = DecompositionPlan(**body)
+        app_id = body.get("app_id", "app1")
+        user_id = body.get("user_id", "user1")
+        context = body.get("context", {})
+        result = executor.execute_plan(plan, app_id=app_id, user_id=user_id, context=context)
+        return JSONResponse(content=result)
+    # Future: accept raw query, decompose, then execute
+    return JSONResponse(status_code=422, content={"error": "Request must include a valid DecompositionPlan."}) 

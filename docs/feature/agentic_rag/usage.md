@@ -101,4 +101,45 @@ POST /agent/query/decompose
 - **Note:** The system now produces richer, multi-step agentic plans for all modalities, supporting advanced multimodal and agentic workflows.
 
 ## Next Steps
-- See the [Implementation Tracker](tracker.md) and [Implementation Plan](implementation_plan.md) for progress and upcoming work on Agentic Query Decomposition (Phase 2). 
+- See the [Implementation Tracker](tracker.md) and [Implementation Plan](implementation_plan.md) for progress and upcoming work on Agentic Query Decomposition (Phase 2).
+
+# Agentic RAG Usage: Agentic Execution
+
+## Agentic Plan Execution Endpoint
+
+### Endpoint
+POST /agent/execute
+
+### Request Example
+```json
+{
+  "plan": [
+    {"step_id": 1, "type": "audio_transcription", "modality": "audio", "parameters": {"file": "audio.mp3"}, "dependencies": [], "trace": {}},
+    {"step_id": 2, "type": "vector_search", "modality": "text", "parameters": {"query": "transcription from step 1"}, "dependencies": [1], "trace": {}},
+    {"step_id": 3, "type": "graph_query", "modality": "text", "parameters": {"related_to": "topics from step 2"}, "dependencies": [2], "trace": {}},
+    {"step_id": 4, "type": "tool_call", "modality": "text", "parameters": {"tool": "search"}, "dependencies": [], "trace": {}}
+  ],
+  "traceability": true,
+  "app_id": "app1",
+  "user_id": "user1"
+}
+```
+
+### Response Example
+```json
+{
+  "final_result": {"tool_result": "[tool output]"},
+  "trace": [
+    {"step_id": 1, "type": "audio_transcription", "result": {"transcription": "[transcribed text]"}, "trace": {}},
+    {"step_id": 2, "type": "vector_search", "result": {"results": [...]}, "trace": {}},
+    {"step_id": 3, "type": "graph_query", "result": {"results": [...]}, "trace": {}},
+    {"step_id": 4, "type": "tool_call", "result": {"tool_result": "[tool output]"}, "trace": {}}
+  ]
+}
+```
+
+### Notes
+- This endpoint executes a full agentic plan, managing dependencies and state.
+- Supports multi-step, multimodal, and tool-using agentic plans.
+- Trace includes the result of each step for explainability.
+- Advanced tool types and agentic behaviors (conditional, rerank, aggregate, etc.) will be supported next. 

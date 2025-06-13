@@ -45,4 +45,27 @@ This document details the design for the agentic query decomposition system, sup
 - **Scalability**: The system is designed for high concurrency and multi-user environments.
 
 ## End-Goal Alignment
-- The design supports the vision of a robust, scalable, and explainable Agentic RAG system, ready for real-world deployment and future agentic extensions. 
+- The design supports the vision of a robust, scalable, and explainable Agentic RAG system, ready for real-world deployment and future agentic extensions.
+
+## Advanced Agentic Tool Types & Behaviors (Design Preview)
+
+The next phase will expand the agentic system to support:
+- **tool_call**: Call external APIs/tools (web search, calculator, plugins, etc.)
+- **rerank**: Rerank results using a model or custom logic
+- **filter**: Filter results based on criteria (metadata, score, etc.)
+- **conditional**: Branch logic (if/else) based on previous step results
+- **aggregate**: Combine results from multiple steps
+- **multi-hop**: Traverse the graph or knowledge base in multiple, dependent steps
+- **llm_call**: Use an LLM for synthesis, summarization, or reasoning at any step
+
+### AgentExecutor Extensions
+- The `AgentExecutor` will be extended to:
+  - Dynamically select and execute tool types based on the plan
+  - Evaluate conditions and branch the plan as needed
+  - Aggregate and transform results between steps
+  - Maintain and update agent state/context as the plan executes
+  - Support error handling, retries, and alternative paths
+
+### Next Steps
+- Usage, implementation plan, and tracker docs will be updated for these advanced behaviors
+- Implementation and tests will follow 

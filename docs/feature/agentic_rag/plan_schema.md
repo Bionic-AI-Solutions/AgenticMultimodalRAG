@@ -34,3 +34,22 @@
 - **traceability**: Plan-level flag for compliance and debugging
 
 > **Note:** The system now produces multi-step, multimodal, and agentic plans for all queries. The schema is extensible for future agentic behaviors (tool use, rerank, filter, conditional, etc.). 
+
+## Advanced Agentic Step Types & Control Flow
+
+The schema supports (or will support) the following advanced step types:
+- `tool_call`: Call external APIs/tools (web search, calculator, plugins, etc.)
+- `rerank`: Rerank results using a model or custom logic
+- `filter`: Filter results based on criteria (metadata, score, etc.)
+- `conditional`: Branch logic (if/else) based on previous step results
+- `aggregate`: Combine results from multiple steps
+- `multi-hop`: Traverse the graph or knowledge base in multiple, dependent steps
+- `llm_call`: Use an LLM for synthesis, summarization, or reasoning at any step
+
+### Control Flow Fields
+- `condition`: (optional) Expression or reference to previous step result for conditional execution
+- `aggregate`: (optional) List of step_ids to aggregate results from
+- `tool`: (optional) Tool name or API to call
+- `params`: (optional) Tool-specific parameters
+
+> **Note:** The schema is designed for extensibility. New step types and control flow fields can be added as needed. All changes are versioned and documented. 
