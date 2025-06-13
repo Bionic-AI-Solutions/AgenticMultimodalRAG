@@ -250,7 +250,7 @@ This project is licensed under the Attribution Assurance License (AAL).
 
 You may use, modify, and distribute this software for personal or commercial purposes, provided that visible credit is given to **Salil Kadam** as the original author in both the source code and any public-facing documentation, websites, or user interfaces, as required by the license.
 
-See the [LICENSE](../LICENSE) file for the full license text and terms.
+See the [LICENSE](LICENSE) file for the full license text and terms.
 
 ## Roadmap
 See [ROADMAP.md](docs/ROADMAP.md) for the full feature roadmap, including planned Video RAG capabilities. 
