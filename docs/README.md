@@ -243,4 +243,8 @@ For questions, see the documentation or open an issue.
 
 ## License
 
-This project is open source and available for both personal and commercial use. You may use, modify, and distribute the software and its derivatives, provided that visible credit is given to **Salil Kadam** as the original author in both the source code and any public-facing documentation, websites, or user interfaces. See the [LICENSE](../LICENSE) file for the full license text and terms. 
+This project is licensed under the Attribution Assurance License (AAL).
+
+You may use, modify, and distribute this software for personal or commercial purposes, provided that visible credit is given to **Salil Kadam** as the original author in both the source code and any public-facing documentation, websites, or user interfaces, as required by the license.
+
+See the [LICENSE](../LICENSE) file for the full license text and terms. 
