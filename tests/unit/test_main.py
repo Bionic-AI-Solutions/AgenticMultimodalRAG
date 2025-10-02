@@ -57,6 +57,10 @@ universal_patches = [
     patch("app.main.embed_image_nomic", return_value=[[0.1] * 768]),
     patch("app.main.embed_pdf_nomic", return_value=[[0.3] * 768]),
     patch("app.main.embed_audio_whisper", return_value=[[0.2] * 768]),
+    patch("app.main.connections.connect"),  # Mock Milvus connection
+    patch("app.main.connections.has_connection", return_value=True),  # Mock connection check
+    patch("app.main.utility.list_collections", return_value=[]),  # Mock collection listing
+    patch("os.path.exists", return_value=True),  # Mock file system checks
 ]
 
 
@@ -68,7 +72,7 @@ def apply_universal_patches(test_func):
 
 @apply_universal_patches
 @patch("app.main.Collection")
-def test_query_vector_basic(mock_collection, mock_embed_audio, mock_embed_pdf, mock_embed_image, mock_embedder):
+def test_query_vector_basic(mock_collection, mock_os_path_exists, mock_list_collections, mock_has_connection, mock_connect, mock_embed_audio, mock_embed_pdf, mock_embed_image, mock_embedder):
     mock_embedder.encode.return_value = [[0.1] * 768]
     mock_hit = MagicMock()
     mock_hit.entity.get.side_effect = lambda k, d=None: {
@@ -99,7 +103,7 @@ def test_query_vector_basic(mock_collection, mock_embed_audio, mock_embed_pdf, m
 
 @apply_universal_patches
 @patch("app.main.Collection")
-def test_query_vector_error_handling(mock_collection, mock_embed_audio, mock_embed_pdf, mock_embed_image, mock_embedder):
+def test_query_vector_error_handling(mock_collection, mock_os_path_exists, mock_list_collections, mock_has_connection, mock_connect, mock_embed_audio, mock_embed_pdf, mock_embed_image, mock_embedder):
     mock_embedder.encode.side_effect = Exception("fail")
     req = {"query": "fail", "app_id": "a", "user_id": "u"}
     resp = client.post("/query/vector", json=req)
@@ -110,7 +114,11 @@ def test_query_vector_error_handling(mock_collection, mock_embed_audio, mock_emb
 @patch("app.main.embed_image_nomic", return_value=[[0.1] * 768])
 @patch("app.main.jina_embedder")
 @patch("app.main.Collection")
-def test_query_vector_image(mock_collection, mock_embedder, mock_embed_image):
+@patch("os.path.exists", return_value=True)
+@patch("app.main.utility.list_collections", return_value=[])
+@patch("app.main.connections.has_connection", return_value=True)
+@patch("app.main.connections.connect")
+def test_query_vector_image(mock_connect, mock_has_connection, mock_list_collections, mock_os_path_exists, mock_collection, mock_embedder, mock_embed_image):
     mock_embedder.encode.return_value = [[0.1] * 768]
     mock_hit = MagicMock()
     mock_hit.entity.get.side_effect = lambda k, d=None: {"doc_id": "docimg", "content": "img", "metadata": {}}.get(k, d)
@@ -131,7 +139,11 @@ def test_query_vector_image(mock_collection, mock_embedder, mock_embed_image):
 
 @patch("app.main.embed_audio_whisper", return_value=[[0.2] * 768])
 @patch("app.main.Collection")
-def test_query_vector_audio(mock_collection, mock_embed_audio):
+@patch("os.path.exists", return_value=True)
+@patch("app.main.utility.list_collections", return_value=[])
+@patch("app.main.connections.has_connection", return_value=True)
+@patch("app.main.connections.connect")
+def test_query_vector_audio(mock_connect, mock_has_connection, mock_list_collections, mock_os_path_exists, mock_collection, mock_embed_audio):
     mock_hit = MagicMock()
     mock_hit.entity.get.side_effect = lambda k, d=None: {"doc_id": "docaud", "content": "aud", "metadata": {}}.get(k, d)
     mock_hit.score = 0.77
@@ -151,7 +163,17 @@ def test_query_vector_audio(mock_collection, mock_embed_audio):
 
 @patch("app.main.embed_pdf_nomic", return_value=[[0.3] * 768])
 @patch("app.main.Collection")
-def test_query_vector_pdf(mock_collection, mock_embed_pdf):
+@patch("app.main.get_text_embedder")
+@patch("os.path.exists", return_value=True)
+@patch("app.main.utility.list_collections", return_value=[])
+@patch("app.main.connections.has_connection", return_value=True)
+@patch("app.main.connections.connect")
+def test_query_vector_pdf(mock_connect, mock_has_connection, mock_list_collections, mock_os_path_exists, mock_get_text_embedder, mock_collection, mock_embed_pdf):
+    # Mock the Jina embedder
+    mock_jina = MagicMock()
+    mock_jina.encode.return_value = [[0.1] * 768]
+    mock_get_text_embedder.return_value = mock_jina
+    
     mock_hit = MagicMock()
     mock_hit.entity.get.side_effect = lambda k, d=None: {"doc_id": "docpdf", "content": "pdf", "metadata": {}}.get(k, d)
     mock_hit.score = 0.66
@@ -195,7 +217,7 @@ def test_query_vector_video_placeholder(mock_collection, mock_embedder, mock_emb
 
 @apply_universal_patches
 @patch("app.main.Collection")
-def test_query_vector_legacy_json(mock_collection, mock_embed_audio, mock_embed_pdf, mock_embed_image, mock_embedder):
+def test_query_vector_legacy_json(mock_collection, mock_os_path_exists, mock_list_collections, mock_has_connection, mock_connect, mock_embed_audio, mock_embed_pdf, mock_embed_image, mock_embedder):
     mock_embedder.encode.return_value = [[0.1] * 768]
     mock_hit = MagicMock()
     mock_hit.entity.get.side_effect = lambda k, d=None: {
