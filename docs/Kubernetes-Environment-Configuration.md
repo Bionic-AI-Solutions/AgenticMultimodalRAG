@@ -78,6 +78,43 @@ Based on the analysis of the current implementation and the Kubernetes cluster, 
   REDIS_DB=0
   ```
 
+### 6. AI Infrastructure Services
+- **Base Host**: `192.168.0.20` (External AI services)
+- **Purpose**: External AI/ML services to avoid heavy local dependencies
+
+#### 6.1 vLLM Service (LLM Inference)
+- **Service**: `192.168.0.20:8000`
+- **Purpose**: Large Language Model inference
+- **Configuration**:
+  ```bash
+  VLLM_BASE_URL=http://192.168.0.20:8000
+  VLLM_MODEL_NAME=default
+  ```
+
+#### 6.2 Routing API
+- **Service**: `192.168.0.20:8001`
+- **Purpose**: API routing and load balancing
+- **Configuration**:
+  ```bash
+  AI_ROUTING_API_URL=http://192.168.0.20:8001
+  ```
+
+#### 6.3 Speech-to-Text Service
+- **Service**: `192.168.0.20:8002`
+- **Purpose**: Audio transcription
+- **Configuration**:
+  ```bash
+  STT_SERVICE_URL=http://192.168.0.20:8002
+  ```
+
+#### 6.4 Text-to-Speech Service
+- **Service**: `192.168.0.20:8003`
+- **Purpose**: Audio generation
+- **Configuration**:
+  ```bash
+  TTS_SERVICE_URL=http://192.168.0.20:8003
+  ```
+
 ## Complete Environment File
 
 Create a `.env` file with the following configuration:

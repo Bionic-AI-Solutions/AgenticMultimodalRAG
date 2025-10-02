@@ -36,6 +36,7 @@ from starlette.datastructures import UploadFile as StarletteUploadFile
 
 from app.api.agentic import router as agentic_router
 from app.edge_graph_config import EdgeGraphConfigLoader
+from app.ai_services import get_ai_client
 
 load_dotenv()
 
@@ -171,107 +172,85 @@ def get_nomic_model():
     return model, processor, device
 
 
-def embed_text_jina(chunks: list[str]) -> Optional[List[List[float]]]:
-    """Embed text using Jina model with GPU memory management and fallback."""
+async def embed_text_jina(chunks: list[str]) -> Optional[List[List[float]]]:
+    """Embed text using external AI service."""
     try:
-        clear_gpu_memory()
-        model = get_text_embedder()
-        embeddings = model.encode(chunks, convert_to_tensor=True)
-        embeddings = embeddings.cpu().numpy().tolist()
+        ai_client = await get_ai_client()
+        embeddings = await ai_client.get_embeddings(chunks, model="jina")
         return embeddings
-    except RuntimeError as e:
-        if "CUDA out of memory" in str(e):
-            logger.warning("GPU OOM during Jina embedding, falling back to CPU")
-            clear_gpu_memory()
-            model = get_text_embedder()  # This will now return CPU model
-            embeddings = model.encode(chunks, convert_to_tensor=False)
-            return embeddings.tolist()
-        raise
+    except Exception as e:
+        logger.error(f"Error embedding text with AI service: {e}")
+        return None
 
 
-def embed_text_nomic(chunks: list[str]) -> Optional[List[List[float]]]:
-    """Embed text using Nomic model with GPU memory management and fallback."""
+async def embed_text_nomic(chunks: list[str]) -> Optional[List[List[float]]]:
+    """Embed text using external AI service."""
     try:
-        clear_gpu_memory()
-        model, processor, device = get_nomic_model()
-        inputs = processor(chunks, padding=True, truncation=True, return_tensors="pt").to(device)
-        with torch.no_grad():
-            outputs = model(**inputs)
-        embeddings = outputs.last_hidden_state.mean(dim=1)
-        embeddings = embeddings.cpu().numpy().tolist()
+        ai_client = await get_ai_client()
+        embeddings = await ai_client.get_embeddings(chunks, model="nomic")
         return embeddings
-    except RuntimeError as e:
-        if "CUDA out of memory" in str(e):
-            logger.warning("GPU OOM during Nomic embedding, falling back to CPU")
-            clear_gpu_memory()
-            model, processor, device = get_nomic_model()  # This will now return CPU model
-            inputs = processor(chunks, padding=True, truncation=True, return_tensors="pt").to(device)
-            with torch.no_grad():
-                outputs = model(**inputs)
-            embeddings = outputs.last_hidden_state.mean(dim=1)
-            return embeddings.numpy().tolist()
-        raise
-
-
-def embed_image_nomic(image: Image.Image) -> list:
-    """Embed an image using the Nomic multimodal model via colpali."""
-    try:
-        model, processor, device = get_nomic_model()
-        batch = processor.process_images([image]).to(device)
-        with torch.no_grad():
-            emb = model(**batch)
-        # emb is a tensor, shape [1, D]. Convert to flat list
-        return emb[0].cpu().float().tolist()
     except Exception as e:
-        logger.exception(f"Nomic image embedding failed: {e}")
-        raise
+        logger.error(f"Error embedding text with AI service: {e}")
+        return None
 
 
-def embed_pdf_nomic(images: list) -> list:
-    """Embed a list of PIL images (PDF pages) using the Nomic multimodal model via colpali."""
+async def embed_image_nomic(image: Image.Image) -> list:
+    """Embed an image using external AI service."""
     try:
-        model, processor, device = get_nomic_model()
-        batch = processor.process_images(images).to(device)
-        with torch.no_grad():
-            emb = model(**batch)
-        # emb is a tensor, shape [N, D]. Average over pages, then flatten
-        emb_mean = emb.mean(dim=0)
-        return emb_mean.cpu().float().tolist()
+        # Convert PIL Image to bytes
+        img_bytes = io.BytesIO()
+        image.save(img_bytes, format='PNG')
+        img_bytes = img_bytes.getvalue()
+        
+        ai_client = await get_ai_client()
+        embeddings = await ai_client.get_embeddings([img_bytes], model="nomic-image")
+        return embeddings[0] if embeddings else [0.0] * 768
     except Exception as e:
-        logger.exception(f"Nomic PDF embedding failed: {e}")
-        raise
+        logger.error(f"Error embedding image with AI service: {e}")
+        return [0.0] * 768
 
 
-def embed_audio_whisper(audio_bytes: bytes) -> Optional[List[float]]:
-    """Embed audio using Whisper model with GPU memory management and fallback. Accepts bytes, writes to temp file."""
-
+async def embed_pdf_nomic(images: list) -> list:
+    """Embed a list of PIL images (PDF pages) using external AI service."""
     try:
-        clear_gpu_memory()
-        model = get_whisper_model()
-        with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as tmp:
-            tmp.write(audio_bytes)
-            tmp_path = tmp.name
-        try:
-            result = model.transcribe(tmp_path)
-            text = result["text"]
-            return embed_text_jina([text])[0]
-        finally:
-            os.remove(tmp_path)
-    except RuntimeError as e:
-        if "CUDA out of memory" in str(e):
-            logger.warning("GPU OOM during Whisper audio embedding, falling back to CPU")
-            clear_gpu_memory()
-            model = get_whisper_model()  # This will now return CPU model
-            with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as tmp:
-                tmp.write(audio_bytes)
-                tmp_path = tmp.name
-            try:
-                result = model.transcribe(tmp_path)
-                text = result["text"]
-                return embed_text_jina([text])[0]
-            finally:
-                os.remove(tmp_path)
-        raise
+        # Convert PIL Images to bytes
+        img_bytes_list = []
+        for image in images:
+            img_bytes = io.BytesIO()
+            image.save(img_bytes, format='PNG')
+            img_bytes_list.append(img_bytes.getvalue())
+        
+        ai_client = await get_ai_client()
+        embeddings = await ai_client.get_embeddings(img_bytes_list, model="nomic-image")
+        
+        if embeddings:
+            # Average the embeddings from all pages
+            import numpy as np
+            avg_embedding = np.mean(embeddings, axis=0).tolist()
+            return avg_embedding
+        else:
+            return [0.0] * 768
+    except Exception as e:
+        logger.error(f"Error embedding PDF with AI service: {e}")
+        return [0.0] * 768
+
+
+async def embed_audio_whisper(audio_bytes: bytes) -> Optional[List[float]]:
+    """Embed audio using external STT service."""
+    try:
+        ai_client = await get_ai_client()
+        # Transcribe audio using STT service
+        text = await ai_client.transcribe_audio(audio_bytes, "mp3")
+        
+        if text:
+            # Get embeddings for the transcribed text
+            embeddings = await ai_client.get_embeddings([text], model="jina")
+            return embeddings[0] if embeddings else [0.0] * 768
+        else:
+            return [0.0] * 768
+    except Exception as e:
+        logger.error(f"Error embedding audio with AI service: {e}")
+        return [0.0] * 768
 
 
 @lru_cache(maxsize=1)
@@ -771,11 +750,11 @@ async def ingest_document(
                 logger.info(
                     f"Chunked into {len(chunks)} chunks. First chunk size: {len(chunks[0].split()) if chunks else 0} words."
                 )
-                embeddings = embed_text_jina(chunks)
+                embeddings = await embed_text_jina(chunks)
             elif detected_type.startswith("image"):
                 # One embedding per image
                 chunks = [file.filename]
-                embedding = embed_image_nomic(Image.open(io.BytesIO(contents)))
+                embedding = await embed_image_nomic(Image.open(io.BytesIO(contents)))
                 if isinstance(embedding, list) and len(embedding) > 0 and isinstance(embedding[0], list):
                     embedding = embedding[0]
                 embeddings = [embedding]
@@ -789,11 +768,11 @@ async def ingest_document(
                     if text.strip():
                         chunks.append(text)
                 logger.info(f"PDF split into {len(chunks)} pages with text.")
-                embeddings = embed_text_jina(chunks) if chunks else []
+                embeddings = await embed_text_jina(chunks) if chunks else []
             elif detected_type.startswith("audio"):
                 # One embedding per audio file
                 chunks = [file.filename]
-                embedding = embed_audio_whisper(contents)
+                embedding = await embed_audio_whisper(contents)
                 if isinstance(embedding, list) and len(embedding) > 0 and isinstance(embedding[0], list):
                     embedding = embedding[0]
                 embeddings = [embedding]
@@ -804,13 +783,13 @@ async def ingest_document(
             ):
                 # Treat as text
                 chunks = chunk_text_recursive(extracted_content)
-                embeddings = embed_text_jina(chunks)
+                embeddings = await embed_text_jina(chunks)
             elif detected_type in (
                 "application/msword",
                 "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
             ):
                 chunks = chunk_text_recursive(extracted_content)
-                embeddings = embed_text_jina(chunks)
+                embeddings = await embed_text_jina(chunks)
             else:
                 logger.warning(f"Unsupported MIME type for embedding: {detected_type}")
                 chunks, embeddings = [], []
@@ -917,11 +896,11 @@ async def query_vector(request: Request):
                         status_code=415, content={"status": "error", "message": "Video embedding not yet supported."}
                     )
                 if detected_type.startswith("image"):
-                    embedding = embed_image_nomic(Image.open(io.BytesIO(contents)))
+                    embedding = await embed_image_nomic(Image.open(io.BytesIO(contents)))
                     if isinstance(embedding, list) and len(embedding) > 0 and isinstance(embedding[0], list):
                         embedding = embedding[0]
                 elif detected_type.startswith("audio"):
-                    embedding = embed_audio_whisper(contents)
+                    embedding = await embed_audio_whisper(contents)
                     if isinstance(embedding, list) and len(embedding) > 0 and isinstance(embedding[0], list):
                         embedding = embedding[0]
                 elif "pdf" in detected_type:
@@ -1129,11 +1108,11 @@ async def query_graph(request: Request):
                         status_code=415, content={"status": "error", "message": "Video embedding not yet supported."}
                     )
                 if detected_type.startswith("image"):
-                    embedding = embed_image_nomic(Image.open(io.BytesIO(contents)))
+                    embedding = await embed_image_nomic(Image.open(io.BytesIO(contents)))
                     if isinstance(embedding, list) and len(embedding) > 0 and isinstance(embedding[0], list):
                         embedding = embedding[0]
                 elif detected_type.startswith("audio"):
-                    embedding = embed_audio_whisper(contents)
+                    embedding = await embed_audio_whisper(contents)
                     if isinstance(embedding, list) and len(embedding) > 0 and isinstance(embedding[0], list):
                         embedding = embedding[0]
                 elif "pdf" in detected_type:
