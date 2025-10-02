@@ -2,6 +2,7 @@ from typing import Any, Dict, List, Optional
 from .models import DecompositionPlan, DecompositionStep
 import requests
 
+
 class AgentExecutor:
     """
     Executes a DecompositionPlan by dynamically traversing the graph and invoking tools/APIs as needed.
@@ -12,12 +13,15 @@ class AgentExecutor:
     - Supports filter steps: filter results from previous step(s) by score, metadata, or other criteria (currently: min_score and metadata key/values).
     - For MCP tool_call: expects parameters.tool == 'mcp', parameters.endpoint, parameters.payload, and optional parameters.headers.
     """
+
     def __init__(self, base_url: str = "http://localhost:8000"):
         self.base_url = base_url
         self.state: Dict[str, Any] = {}
         self.trace: List[Dict[str, Any]] = []
 
-    def execute_plan(self, plan: DecompositionPlan, app_id: str, user_id: str, context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    def execute_plan(
+        self, plan: DecompositionPlan, app_id: str, user_id: str, context: Optional[Dict[str, Any]] = None
+    ) -> Dict[str, Any]:
         """
         Execute each step in the plan, managing dependencies and state.
         Returns a structured result and execution trace.
@@ -29,7 +33,15 @@ class AgentExecutor:
             # --- Conditional execution logic ---
             if step.condition:
                 if not self.evaluate_condition(step.condition, step_results):
-                    self.trace.append({"step_id": step.step_id, "type": step.type, "skipped": True, "condition": step.condition, "trace": step.trace})
+                    self.trace.append(
+                        {
+                            "step_id": step.step_id,
+                            "type": step.type,
+                            "skipped": True,
+                            "condition": step.condition,
+                            "trace": step.trace,
+                        }
+                    )
                     continue
             result = self.execute_step(step, app_id, user_id, context, step_results)
             step_results[step.step_id] = result
@@ -56,7 +68,14 @@ class AgentExecutor:
         except Exception:
             return False
 
-    def execute_step(self, step: DecompositionStep, app_id: str, user_id: str, context: Optional[Dict[str, Any]], step_results: Dict[int, Any]) -> Any:
+    def execute_step(
+        self,
+        step: DecompositionStep,
+        app_id: str,
+        user_id: str,
+        context: Optional[Dict[str, Any]],
+        step_results: Dict[int, Any],
+    ) -> Any:
         """
         Execute a single step. Handles vector_search, graph_query, tool_call, etc.
         This is a scaffold: expand with real logic for each step type.
@@ -68,7 +87,11 @@ class AgentExecutor:
             return resp.json()
         elif step.type == "graph_query":
             # Example: call /query/graph endpoint
-            payload = {"query": step.parameters.get("related_to", step.parameters.get("query")), "app_id": app_id, "user_id": user_id}
+            payload = {
+                "query": step.parameters.get("related_to", step.parameters.get("query")),
+                "app_id": app_id,
+                "user_id": user_id,
+            }
             resp = requests.post(f"{self.base_url}/query/graph", json=payload)
             return resp.json()
         elif step.type == "audio_transcription":
@@ -192,4 +215,4 @@ class AgentExecutor:
             summary = f"[LLM SYNTHESIS] {prompt}: {str(input_result)[:100]}..."
             return {"llm_call": True, "synthesized": summary}
         # Add more step types as needed
-        return {"result": f"Executed {step.type}"} 
+        return {"result": f"Executed {step.type}"}

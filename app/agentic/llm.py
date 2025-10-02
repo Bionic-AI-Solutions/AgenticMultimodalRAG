@@ -3,11 +3,13 @@ from typing import Dict, Any
 import os
 import re
 
+
 class LLMClient:
     """
     Backend-agnostic LLM client for generating decomposition plans.
     Supports OpenAI API, local LLMs (Ollama), and a mock backend for testing.
     """
+
     def __init__(self, backend: str = "openai", config: Dict[str, Any] = None):
         self.backend = backend
         self.config = config or {}
@@ -42,7 +44,7 @@ class LLMClient:
                         "modality": "text",
                         "parameters": {"query": "Summarize the main findings from the PDF."},
                         "dependencies": [],
-                        "trace": {"source": "llm", "explanation": "Decomposed from user query."}
+                        "trace": {"source": "llm", "explanation": "Decomposed from user query."},
                     },
                     {
                         "step_id": 2,
@@ -50,33 +52,30 @@ class LLMClient:
                         "modality": "image",
                         "parameters": {"related_to": "findings_from_step_1"},
                         "dependencies": [1],
-                        "trace": {"source": "llm", "explanation": "Find images related to findings."}
-                    }
+                        "trace": {"source": "llm", "explanation": "Find images related to findings."},
+                    },
                 ],
-                "traceability": True
+                "traceability": True,
             }
         if self.backend == "local":
             # Prepend system prompt
             full_prompt = f"{system_prompt}{prompt}"
             url = f"http://{self.ollama_host}/api/generate"
-            payload = {
-                "model": self.ollama_model,
-                "prompt": full_prompt,
-                "stream": False
-            }
+            payload = {"model": self.ollama_model, "prompt": full_prompt, "stream": False}
             try:
                 resp = requests.post(url, json=payload, timeout=180)
                 resp.raise_for_status()
                 data = resp.json()
                 # Expect the LLM to return a JSON plan in the 'response' field
                 import json as _json
+
                 plan_str = data.get("response", "")
                 try:
                     # Try direct JSON parse
                     return _json.loads(plan_str)
                 except Exception:
                     # Try to extract JSON block from the response
-                    match = re.search(r'\{[\s\S]*\}', plan_str)
+                    match = re.search(r"\{[\s\S]*\}", plan_str)
                     if match:
                         try:
                             return _json.loads(match.group(0))
@@ -90,4 +89,4 @@ class LLMClient:
             # TODO: Call OpenAI API with prompt
             raise NotImplementedError("OpenAI backend not implemented yet.")
         else:
-            raise ValueError(f"Unsupported backend: {self.backend}") 
+            raise ValueError(f"Unsupported backend: {self.backend}")

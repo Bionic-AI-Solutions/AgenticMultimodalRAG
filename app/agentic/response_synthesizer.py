@@ -1,6 +1,7 @@
 from typing import List, Dict, Any, Optional
 from pydantic import BaseModel
 
+
 class ResponseSynthesisRequest(BaseModel):
     plan: Any  # DecompositionPlan, but avoid import cycle
     execution_trace: List[Dict[str, Any]]
@@ -10,11 +11,13 @@ class ResponseSynthesisRequest(BaseModel):
     explanation_style: Optional[str] = None  # e.g., 'step-by-step', 'short', 'detailed', 'for a 5th grader'
     prompt_version: Optional[str] = None  # e.g., 'default', 'v2', etc.
 
+
 class ResponseSynthesisResult(BaseModel):
     answer: str
     explanation: str
     supporting_evidence: Optional[List[Dict[str, Any]]] = None
     trace: Optional[List[Dict[str, Any]]] = None
+
 
 class ResponseSynthesizer:
     """
@@ -23,6 +26,7 @@ class ResponseSynthesizer:
     - Generates a step-by-step explanation from the execution trace (LLM-based if requested).
     - Supports user-tunable explanation style and prompt version.
     """
+
     def __init__(self, llm_client=None, prompt_templates=None):
         self.llm_client = llm_client  # Optional: inject LLM client for real LLM calls
         self.prompt_templates = prompt_templates or {"default": self._default_prompt_template}
@@ -49,7 +53,7 @@ class ResponseSynthesizer:
             answer=answer,
             explanation=explanation,
             supporting_evidence=[final_result] if final_result else None,
-            trace=request.execution_trace
+            trace=request.execution_trace,
         )
 
     def generate_explanation(self, trace: List[Dict[str, Any]]) -> str:
@@ -95,4 +99,4 @@ class ResponseSynthesizer:
             return "No answer could be synthesized from the available evidence."
         return f"Based on the results: {final_result}\n\nExplanation:\n{explanation}"
 
-    # TODO: Integrate user feedback for answer/explanation quality and prompt tuning 
+    # TODO: Integrate user feedback for answer/explanation quality and prompt tuning

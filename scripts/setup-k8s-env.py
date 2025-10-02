@@ -11,6 +11,7 @@ import subprocess
 import json
 from pathlib import Path
 
+
 def run_kubectl_command(command):
     """Run a kubectl command and return the output."""
     try:
@@ -26,17 +27,19 @@ def run_kubectl_command(command):
         print(f"Exception: {e}")
         return None
 
+
 def get_k8s_secret(namespace, secret_name, key):
     """Get a secret value from Kubernetes."""
     command = f"kubectl get secret {secret_name} -n {namespace} -o jsonpath='{{.data.{key}}}'"
     encoded_value = run_kubectl_command(command)
     if encoded_value:
         try:
-            return base64.b64decode(encoded_value).decode('utf-8')
+            return base64.b64decode(encoded_value).decode("utf-8")
         except Exception as e:
             print(f"Error decoding secret {secret_name}.{key}: {e}")
             return None
     return None
+
 
 def get_k8s_service_info(namespace, service_name):
     """Get service information from Kubernetes."""
@@ -45,38 +48,36 @@ def get_k8s_service_info(namespace, service_name):
     if output:
         try:
             service_info = json.loads(output)
-            return {
-                'cluster_ip': service_info['spec']['clusterIP'],
-                'ports': service_info['spec']['ports']
-            }
+            return {"cluster_ip": service_info["spec"]["clusterIP"], "ports": service_info["spec"]["ports"]}
         except Exception as e:
             print(f"Error parsing service info for {service_name}: {e}")
             return None
     return None
 
+
 def generate_env_file():
     """Generate the .env file with current Kubernetes cluster information."""
-    
+
     print("🔍 Discovering Kubernetes services...")
-    
+
     # Get service information
     services = {
-        'milvus': get_k8s_service_info('milvus', 'milvus'),
-        'minio': get_k8s_service_info('minio', 'minio'),
-        'postgres': get_k8s_service_info('pg', 'pg-rw'),
-        'neo4j': get_k8s_service_info('neo4j', 'neo4j'),
-        'redis': get_k8s_service_info('redis-new', 'redis-simple')
+        "milvus": get_k8s_service_info("milvus", "milvus"),
+        "minio": get_k8s_service_info("minio", "minio"),
+        "postgres": get_k8s_service_info("pg", "pg-rw"),
+        "neo4j": get_k8s_service_info("neo4j", "neo4j"),
+        "redis": get_k8s_service_info("redis-new", "redis-simple"),
     }
-    
+
     # Get secrets
     secrets = {
-        'minio_access_key': get_k8s_secret('milvus', 'milvus-minio-secret', 'access-key'),
-        'minio_secret_key': get_k8s_secret('milvus', 'milvus-minio-secret', 'secret-key'),
-        'neo4j_password': get_k8s_secret('neo4j', 'neo4j', 'password'),
-        'postgres_password': get_k8s_secret('pg', 'pg-credentials', 'password'),
-        'redis_password': get_k8s_secret('redis-new', 'redis-secrets', 'password')
+        "minio_access_key": get_k8s_secret("milvus", "milvus-minio-secret", "access-key"),
+        "minio_secret_key": get_k8s_secret("milvus", "milvus-minio-secret", "secret-key"),
+        "neo4j_password": get_k8s_secret("neo4j", "neo4j", "password"),
+        "postgres_password": get_k8s_secret("pg", "pg-credentials", "password"),
+        "redis_password": get_k8s_secret("redis-new", "redis-secrets", "password"),
     }
-    
+
     # Generate environment file content
     env_content = f"""# =============================================================================
 # AGENTIC MULTIMODAL RAG SYSTEM - KUBERNETES ENVIRONMENT CONFIGURATION
@@ -283,62 +284,64 @@ SECURE_HSTS_SECONDS=0
 SECURE_HSTS_INCLUDE_SUBDOMAINS=false
 SECURE_HSTS_PRELOAD=false
 """
-    
+
     # Write to .env file
-    env_file_path = Path('.env')
-    with open(env_file_path, 'w') as f:
+    env_file_path = Path(".env")
+    with open(env_file_path, "w") as f:
         f.write(env_content)
-    
+
     print(f"✅ Environment file generated: {env_file_path.absolute()}")
-    
+
     # Print service discovery summary
     print("\n📋 Service Discovery Summary:")
     print("=" * 50)
-    
+
     for service_name, service_info in services.items():
         if service_info:
             print(f"✅ {service_name.upper()}: {service_info['cluster_ip']}")
         else:
             print(f"❌ {service_name.upper()}: Not found")
-    
+
     print("\n🔐 Secrets Retrieved:")
     print("=" * 50)
-    
+
     for secret_name, secret_value in secrets.items():
         if secret_value:
             print(f"✅ {secret_name}: Retrieved")
         else:
             print(f"❌ {secret_name}: Not found")
-    
+
     print(f"\n🚀 Next steps:")
     print(f"1. Review the generated .env file")
     print(f"2. Update any placeholder values (JWT secrets, API keys, etc.)")
     print(f"3. Test connectivity using: python -m app.main")
     print(f"4. Check health endpoints: curl http://localhost:8000/health")
 
+
 def main():
     """Main function."""
     print("🚀 Kubernetes Environment Setup for Agentic Multimodal RAG")
     print("=" * 60)
-    
+
     # Check if kubectl is available
     kubectl_check = run_kubectl_command("kubectl version --client")
     if not kubectl_check:
         print("❌ kubectl not found. Please install kubectl and configure it to access your cluster.")
         return
-    
+
     print("✅ kubectl found and configured")
-    
+
     # Check cluster connectivity
     cluster_info = run_kubectl_command("kubectl cluster-info")
     if not cluster_info:
         print("❌ Cannot connect to Kubernetes cluster. Please check your kubeconfig.")
         return
-    
+
     print("✅ Connected to Kubernetes cluster")
-    
+
     # Generate environment file
     generate_env_file()
+
 
 if __name__ == "__main__":
     main()

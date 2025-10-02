@@ -1,6 +1,7 @@
 from typing import List, Dict, Any, Optional
 from pydantic import BaseModel
 
+
 class DecompositionStep(BaseModel):
     """
     A single step in an agentic decomposition plan.
@@ -13,6 +14,7 @@ class DecompositionStep(BaseModel):
     - condition: (optional) Expression or reference to previous step result for conditional execution (e.g., 'step_1.result == "success"')
     - trace: Dict with source, explanation, and any LLM metadata (ensures explainability and auditability)
     """
+
     step_id: int
     type: str  # e.g., vector_search, graph_query, filter, rerank, tool_call, audio_transcription, conditional, ...
     modality: str  # text, image, audio, etc.
@@ -21,11 +23,13 @@ class DecompositionStep(BaseModel):
     condition: Optional[str] = None
     trace: Optional[Dict[str, Any]] = None
 
+
 class DecompositionPlan(BaseModel):
     """
     A structured plan for agentic query decomposition.
     - plan: List of DecompositionStep objects
     - traceability: Whether traceability is enabled for this plan (compliance/debugging)
     """
+
     plan: List[DecompositionStep]
-    traceability: bool = True 
+    traceability: bool = True

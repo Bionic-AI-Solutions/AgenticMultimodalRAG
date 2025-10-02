@@ -17,12 +17,14 @@ synthesizer = ResponseSynthesizer()
 
 FEEDBACK_FILE = os.getenv("FEEDBACK_FILE", "feedback.jsonl")
 
+
 class DecomposeRequest(BaseModel):
     query: str
     app_id: str
     user_id: str
     modality: str
     context: Optional[Dict[str, Any]] = None
+
 
 class FeedbackRequest(BaseModel):
     app_id: str
@@ -36,7 +38,13 @@ class FeedbackRequest(BaseModel):
     explanation_style: Optional[str] = None
     prompt_version: Optional[str] = None
 
-@router.post("/agent/query/decompose", response_model=DecompositionPlan, tags=["Agentic"], summary="Decompose a user query into an agentic plan")
+
+@router.post(
+    "/agent/query/decompose",
+    response_model=DecompositionPlan,
+    tags=["Agentic"],
+    summary="Decompose a user query into an agentic plan",
+)
 def decompose_query(request: DecomposeRequest = Body(...)):
     """
     Decompose a complex user query into a structured agentic plan for downstream execution.
@@ -46,12 +54,14 @@ def decompose_query(request: DecomposeRequest = Body(...)):
         app_id=request.app_id,
         user_id=request.user_id,
         modality=request.modality,
-        context=request.context or {}
+        context=request.context or {},
     )
+
 
 # --- New: Agentic Plan Execution Endpoint ---
 from fastapi import Request
 from fastapi.responses import JSONResponse
+
 
 @router.post("/agent/execute", tags=["Agentic"], summary="Execute an agentic plan (multi-step, multimodal, tool use)")
 async def execute_agentic_plan(request: Request):
@@ -70,7 +80,13 @@ async def execute_agentic_plan(request: Request):
     # Future: accept raw query, decompose, then execute
     return JSONResponse(status_code=422, content={"error": "Request must include a valid DecompositionPlan."})
 
-@router.post("/agent/answer", response_model=ResponseSynthesisResult, tags=["Agentic"], summary="Synthesize a final answer and explanation from agentic execution trace")
+
+@router.post(
+    "/agent/answer",
+    response_model=ResponseSynthesisResult,
+    tags=["Agentic"],
+    summary="Synthesize a final answer and explanation from agentic execution trace",
+)
 async def synthesize_agentic_answer(request: Request):
     """
     Synthesize a final answer and step-by-step explanation from the results and trace of an agentic plan execution.
@@ -84,7 +100,13 @@ async def synthesize_agentic_answer(request: Request):
     result = synthesizer.synthesize_answer(req)
     return result
 
-@router.post("/agent/feedback", status_code=status.HTTP_201_CREATED, tags=["Agentic"], summary="Submit user feedback on agentic answer/explanation")
+
+@router.post(
+    "/agent/feedback",
+    status_code=status.HTTP_201_CREATED,
+    tags=["Agentic"],
+    summary="Submit user feedback on agentic answer/explanation",
+)
 async def submit_agentic_feedback(feedback: FeedbackRequest):
     """
     Submit user feedback on an agentic answer and explanation.
@@ -96,4 +118,4 @@ async def submit_agentic_feedback(feedback: FeedbackRequest):
     record["timestamp"] = __import__("datetime").datetime.utcnow().isoformat()
     with open(FEEDBACK_FILE, "a") as f:
         f.write(json.dumps(record) + "\n")
-    return {"status": "success", "message": "Feedback recorded."} 
+    return {"status": "success", "message": "Feedback recorded."}

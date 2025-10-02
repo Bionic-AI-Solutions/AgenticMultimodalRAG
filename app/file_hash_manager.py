@@ -45,11 +45,7 @@ def update_hash(filepath: str):
 
 
 def verify_or_download(
-    filepath: str,
-    expected_hash: Optional[str],
-    download_func: Callable[[str], None],
-    *download_args,
-    **download_kwargs
+    filepath: str, expected_hash: Optional[str], download_func: Callable[[str], None], *download_args, **download_kwargs
 ) -> bool:
     """
     Verifies the file at filepath against the expected_hash. If missing or hash mismatch, calls download_func(filepath, *args, **kwargs), then updates the hash.
@@ -57,7 +53,9 @@ def verify_or_download(
     """
     abs_path = os.path.abspath(filepath)
     stored_hash = get_stored_hash(abs_path)
-    logger.info(f"[verify_or_download] Checking {abs_path}\n  - expected_hash: {expected_hash}\n  - stored_hash: {stored_hash}")
+    logger.info(
+        f"[verify_or_download] Checking {abs_path}\n  - expected_hash: {expected_hash}\n  - stored_hash: {stored_hash}"
+    )
     if os.path.exists(abs_path):
         current_hash = compute_sha256(abs_path)
         logger.info(f"[verify_or_download] {abs_path} exists. current_hash: {current_hash}")
@@ -77,7 +75,9 @@ def verify_or_download(
     save_hashes(hashes)
     logger.info(f"[verify_or_download] Downloaded and updated hash for {abs_path}: {new_hash}")
     if expected_hash is not None and new_hash != expected_hash:
-        logger.warning(f"[verify_or_download] Warning: Downloaded file hash still does not match expected.\n  - expected: {expected_hash}\n  - actual: {new_hash}")
+        logger.warning(
+            f"[verify_or_download] Warning: Downloaded file hash still does not match expected.\n  - expected: {expected_hash}\n  - actual: {new_hash}"
+        )
         return False
     return True
 
@@ -87,4 +87,4 @@ def get_stored_hash(filepath: str) -> Optional[str]:
     hashes = load_hashes()
     hash_val = hashes.get(abs_path)
     logger.debug(f"[get_stored_hash] {abs_path} stored_hash: {hash_val}")
-    return hash_val 
+    return hash_val

@@ -1,4 +1,5 @@
 from dotenv import load_dotenv
+
 load_dotenv()
 from datetime import datetime
 from fastapi import FastAPI, UploadFile, File, Form, Body, Request, Depends
@@ -8,7 +9,16 @@ from typing import Dict, Optional, Any, List, Union
 from pydantic import BaseModel
 import logging
 import os
-from pymilvus import connections, exceptions as milvus_exceptions, Collection, CollectionSchema, FieldSchema, DataType, list_collections, utility
+from pymilvus import (
+    connections,
+    exceptions as milvus_exceptions,
+    Collection,
+    CollectionSchema,
+    FieldSchema,
+    DataType,
+    list_collections,
+    utility,
+)
 from pymilvus.exceptions import ConnectionNotExistException
 import asyncio
 from minio import Minio
@@ -17,12 +27,15 @@ from neo4j import GraphDatabase
 import traceback
 from fastapi.responses import JSONResponse
 import mimetypes
+
 try:
     import magic  # python-magic for magic byte detection
+
     HAS_MAGIC = True
 except ImportError:
     HAS_MAGIC = False
 from sentence_transformers import SentenceTransformer
+
 # Nomic and Whisper imports (stubs for now)
 # from colpali_engine.models import ColQwen2_5, ColQwen2_5_Processor
 import whisper
@@ -69,7 +82,9 @@ except ImportError:
     ColQwen2_5 = None
     ColQwen2_5_Processor = None
     import logging
+
     logging.warning("colpali_engine not installed. Nomic multimodal embedding will not work.")
+
 
 def clear_gpu_memory():
     """Clear GPU memory cache."""
@@ -77,19 +92,21 @@ def clear_gpu_memory():
         torch.cuda.empty_cache()
         torch.cuda.synchronize()
 
+
 def get_device():
     """Get the best available device with fallback to CPU if GPU is out of memory."""
     if torch.cuda.is_available():
         try:
             # Try to allocate a small tensor to check if GPU has memory
             torch.cuda.empty_cache()
-            test_tensor = torch.zeros(1, device='cuda')
+            test_tensor = torch.zeros(1, device="cuda")
             del test_tensor
-            return 'cuda'
+            return "cuda"
         except RuntimeError:
             logger.warning("GPU memory full, falling back to CPU")
-            return 'cpu'
-    return 'cpu'
+            return "cpu"
+    return "cpu"
+
 
 @lru_cache(maxsize=1)
 def get_text_embedder():
@@ -97,19 +114,26 @@ def get_text_embedder():
     device = get_device()
     hf_token = os.getenv("HUGGINGFACE_HUB_TOKEN")
     model_dir = os.getenv("MODEL_DIR") or os.getenv("HF_HOME") or os.getenv("TRANSFORMERS_CACHE") or "/Volumes/ssd/mac/models"
-    model_name = 'jinaai/jina-embeddings-v2-base-en'
-    local_path = os.path.join(model_dir, model_name.replace('/', '__'))
-    logger.info(f"[DEBUG] get_text_embedder: model_dir={model_dir}, local_path={local_path}, exists={os.path.exists(local_path)}")
-    logger.info(f"[DEBUG] isdir={os.path.isdir(local_path)}, isfile={os.path.isfile(local_path)}, islink={os.path.islink(local_path)}")
+    model_name = "jinaai/jina-embeddings-v2-base-en"
+    local_path = os.path.join(model_dir, model_name.replace("/", "__"))
+    logger.info(
+        f"[DEBUG] get_text_embedder: model_dir={model_dir}, local_path={local_path}, exists={os.path.exists(local_path)}"
+    )
+    logger.info(
+        f"[DEBUG] isdir={os.path.isdir(local_path)}, isfile={os.path.isfile(local_path)}, islink={os.path.islink(local_path)}"
+    )
     if os.path.isdir(local_path):
         logger.info(f"[DEBUG] Directory contents: {os.listdir(local_path)}")
     if os.path.exists(local_path):
         try:
             expected_hash = get_stored_hash(local_path)
+
             def dummy_download_func(path):
                 raise RuntimeError(f"Hash mismatch for {path}")
+
             # Try to load the model
             from sentence_transformers import SentenceTransformer
+
             model = SentenceTransformer(local_path, device=device)
             logger.info("[DEBUG] JinaAI model loaded successfully from local path.")
             return model
@@ -120,6 +144,7 @@ def get_text_embedder():
         logger.error(f"Local JinaAI model directory does not exist: {local_path}")
         raise RuntimeError(f"JinaAI model directory not found: {local_path}")
 
+
 @lru_cache(maxsize=1)
 def get_nomic_model():
     """Load the Nomic multimodal model and processor from local cache using colpali. Never connect to the internet."""
@@ -127,7 +152,7 @@ def get_nomic_model():
         raise ImportError("colpali_engine.models.ColQwen2_5 not available. Please install colpali.")
     model_dir = os.getenv("HF_HOME", "/Volumes/ssd/mac/models")
     model_name = "nomic-ai/colnomic-embed-multimodal-7b"
-    local_path = os.path.join(model_dir, model_name.replace('/', '__'))
+    local_path = os.path.join(model_dir, model_name.replace("/", "__"))
     safetensors_path = os.path.join(local_path, "adapter_model.safetensors")
     if not os.path.exists(safetensors_path):
         logger.error(f"Nomic model file missing: {safetensors_path}")
@@ -140,6 +165,7 @@ def get_nomic_model():
     ).eval()
     processor = ColQwen2_5_Processor.from_pretrained(local_path)
     return model, processor, device
+
 
 def embed_text_jina(chunks: list[str]) -> Optional[List[List[float]]]:
     """Embed text using Jina model with GPU memory management and fallback."""
@@ -157,6 +183,7 @@ def embed_text_jina(chunks: list[str]) -> Optional[List[List[float]]]:
             embeddings = model.encode(chunks, convert_to_tensor=False)
             return embeddings.tolist()
         raise
+
 
 def embed_text_nomic(chunks: list[str]) -> Optional[List[List[float]]]:
     """Embed text using Nomic model with GPU memory management and fallback."""
@@ -181,6 +208,7 @@ def embed_text_nomic(chunks: list[str]) -> Optional[List[List[float]]]:
             return embeddings.numpy().tolist()
         raise
 
+
 def embed_image_nomic(image: Image.Image) -> list:
     """Embed an image using the Nomic multimodal model via colpali."""
     try:
@@ -193,6 +221,7 @@ def embed_image_nomic(image: Image.Image) -> list:
     except Exception as e:
         logger.exception(f"Nomic image embedding failed: {e}")
         raise
+
 
 def embed_pdf_nomic(images: list) -> list:
     """Embed a list of PIL images (PDF pages) using the Nomic multimodal model via colpali."""
@@ -208,14 +237,16 @@ def embed_pdf_nomic(images: list) -> list:
         logger.exception(f"Nomic PDF embedding failed: {e}")
         raise
 
+
 def embed_audio_whisper(audio_bytes: bytes) -> Optional[List[float]]:
     """Embed audio using Whisper model with GPU memory management and fallback. Accepts bytes, writes to temp file."""
     import os
     import tempfile
+
     try:
         clear_gpu_memory()
         model = get_whisper_model()
-        with tempfile.NamedTemporaryFile(suffix='.mp3', delete=False) as tmp:
+        with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as tmp:
             tmp.write(audio_bytes)
             tmp_path = tmp.name
         try:
@@ -229,7 +260,7 @@ def embed_audio_whisper(audio_bytes: bytes) -> Optional[List[float]]:
             logger.warning("GPU OOM during Whisper audio embedding, falling back to CPU")
             clear_gpu_memory()
             model = get_whisper_model()  # This will now return CPU model
-            with tempfile.NamedTemporaryFile(suffix='.mp3', delete=False) as tmp:
+            with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as tmp:
                 tmp.write(audio_bytes)
                 tmp_path = tmp.name
             try:
@@ -240,12 +271,13 @@ def embed_audio_whisper(audio_bytes: bytes) -> Optional[List[float]]:
                 os.remove(tmp_path)
         raise
 
+
 @lru_cache(maxsize=1)
 def get_whisper_model():
     """Load the Whisper model from local cache only. Never connect to the internet."""
     model_dir = os.getenv("HF_HOME", "/Volumes/ssd/mac/models")
     model_name = "openai/whisper-base"
-    local_path = os.path.join(model_dir, model_name.replace('/', '__'))
+    local_path = os.path.join(model_dir, model_name.replace("/", "__"))
     safetensors_path = os.path.join(local_path, "model.safetensors")
     bin_path = os.path.join(local_path, "pytorch_model.bin")
     if not (os.path.exists(safetensors_path) or os.path.exists(bin_path)):
@@ -253,11 +285,13 @@ def get_whisper_model():
         raise FileNotFoundError(f"Whisper model file missing: {safetensors_path} or {bin_path}")
     try:
         import whisper
+
         model = whisper.load_model("base", download_root=local_path)
         return model
     except Exception as e:
         logger.error(f"Failed to load Whisper model from local cache: {e}")
         raise
+
 
 # Move the lifespan definition here (before app = FastAPI(...))
 @asynccontextmanager
@@ -279,12 +313,13 @@ async def lifespan(app: FastAPI):
     # Shutdown
     logger.info("Shutting down RAG System...")
 
+
 # FastAPI app
 app = FastAPI(
     title="Agentic Multimodal RAG System",
     description="Advanced RAG system with Milvus integration",
     version="1.0.0",
-    lifespan=lifespan
+    lifespan=lifespan,
 )
 
 # CORS middleware
@@ -296,16 +331,19 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+
 # Pydantic Models
 class HealthResponse(BaseModel):
     status: str
     services: Dict[str, str]
     timestamp: str
 
+
 class IngestResponse(BaseModel):
     doc_id: str
     status: str
     message: Optional[str] = None
+
 
 class VectorQueryRequest(BaseModel):
     query: str
@@ -314,24 +352,29 @@ class VectorQueryRequest(BaseModel):
     top_k: int = 10
     filters: Optional[Dict[str, Any]] = None  # Flexible key-value filters
 
+
 class VectorQueryResult(BaseModel):
     doc_id: str
     score: float
     content: str
     metadata: Dict[str, Any]
 
+
 class VectorQueryResponse(BaseModel):
     results: List[VectorQueryResult]
+
 
 class GraphContextNode(BaseModel):
     id: str
     label: str
     type: str
 
+
 class GraphContextEdge(BaseModel):
     source: str
     target: str
     type: str
+
 
 class GraphQueryResult(BaseModel):
     doc_id: str
@@ -340,13 +383,16 @@ class GraphQueryResult(BaseModel):
     metadata: Dict[str, Any]
     graph_context: Dict[str, Any]  # nodes/edges
 
+
 class GraphQueryResponse(BaseModel):
     results: List[GraphQueryResult]
     explain: Optional[Dict[str, Any]] = None
 
+
 # Milvus connection utility
 MILVUS_HOST = os.getenv("MILVUS_HOST", "localhost")
 MILVUS_PORT = os.getenv("MILVUS_PORT", "19530")
+
 
 # Utility to ensure Milvus connection
 def ensure_milvus_connection():
@@ -355,17 +401,14 @@ def ensure_milvus_connection():
         if not connections.has_connection("default"):
             logger.info("Establishing new Milvus connection...")
             connections.connect(
-                alias="default",
-                host=os.getenv("MILVUS_HOST", "localhost"),
-                port=int(os.getenv("MILVUS_PORT", "19530"))
+                alias="default", host=os.getenv("MILVUS_HOST", "localhost"), port=int(os.getenv("MILVUS_PORT", "19530"))
             )
     except ConnectionNotExistException:
         logger.info("Establishing new Milvus connection (exception fallback)...")
         connections.connect(
-            alias="default",
-            host=os.getenv("MILVUS_HOST", "localhost"),
-            port=int(os.getenv("MILVUS_PORT", "19530"))
+            alias="default", host=os.getenv("MILVUS_HOST", "localhost"), port=int(os.getenv("MILVUS_PORT", "19530"))
         )
+
 
 def normalize_embeddings(embeddings, num_chunks):
     # Recursively flatten to a list of floats
@@ -381,7 +424,7 @@ def normalize_embeddings(embeddings, num_chunks):
             return [float(e)]
         else:
             return []
-    
+
     # If embeddings is a list, flatten each
     if isinstance(embeddings, list) and len(embeddings) > 0:
         flattened = [flatten_recursive(e) for e in embeddings]
@@ -397,11 +440,13 @@ def normalize_embeddings(embeddings, num_chunks):
         return normalized
     return []
 
+
 # Utility to get current JinaAI embedding dimension
 def get_jina_embedding_dim():
     model = get_text_embedder()
     emb = model.encode(["test"])
     return emb.shape[1] if len(emb.shape) == 2 else len(emb)
+
 
 def ensure_collection(collection_name: str, embedding_dim: int = None):
     """Ensure Milvus collection exists with proper schema and dimension."""
@@ -415,21 +460,18 @@ def ensure_collection(collection_name: str, embedding_dim: int = None):
             FieldSchema(name="doc_id", dtype=DataType.VARCHAR, is_primary=True, auto_id=False, max_length=100),
             FieldSchema(name="content", dtype=DataType.VARCHAR, max_length=65535),
             FieldSchema(name="embedding", dtype=DataType.FLOAT_VECTOR, dim=embedding_dim),
-            FieldSchema(name="metadata", dtype=DataType.JSON)
+            FieldSchema(name="metadata", dtype=DataType.JSON),
         ]
         schema = CollectionSchema(fields=fields, description="Document embeddings collection")
         collection = Collection(name=collection_name, schema=schema)
-        index_params = {
-            "metric_type": "IP",
-            "index_type": "IVF_FLAT",
-            "params": {"nlist": 1024}
-        }
+        index_params = {"metric_type": "IP", "index_type": "IVF_FLAT", "params": {"nlist": 1024}}
         collection.create_index(field_name="embedding", index_params=index_params)
         collection.load()
         return collection
     except Exception as e:
         logger.error(f"Error ensuring Milvus collection: {e}")
         raise
+
 
 async def check_milvus():
     try:
@@ -442,6 +484,7 @@ async def check_milvus():
         return f"unreachable: {str(e)}"
     except Exception as e:
         return f"unreachable: {str(e)}"
+
 
 # Minio health check
 async def check_minio():
@@ -457,6 +500,7 @@ async def check_minio():
     except Exception as e:
         return f"unreachable: {str(e)}"
 
+
 # Postgres health check
 async def check_postgres():
     try:
@@ -465,18 +509,12 @@ async def check_postgres():
         pg_user = os.getenv("POSTGRES_USER", "postgres")
         pg_password = os.getenv("POSTGRES_PASSWORD", "postgres")
         pg_db = os.getenv("POSTGRES_DB", "postgres")
-        conn = await asyncpg.connect(
-            user=pg_user,
-            password=pg_password,
-            database=pg_db,
-            host=pg_host,
-            port=pg_port,
-            timeout=2
-        )
+        conn = await asyncpg.connect(user=pg_user, password=pg_password, database=pg_db, host=pg_host, port=pg_port, timeout=2)
         await conn.close()
         return "ok"
     except Exception as e:
         return f"unreachable: {str(e)}"
+
 
 # Neo4j connection utility
 NEO4J_AUTH = os.getenv("NEO4J_AUTH", "neo4j/neo4jpassword")
@@ -485,6 +523,7 @@ if "/" in NEO4J_AUTH:
 else:
     NEO4J_USER = NEO4J_AUTH
     NEO4J_PASSWORD = ""
+
 
 # Neo4j health check
 async def check_neo4j():
@@ -497,6 +536,7 @@ async def check_neo4j():
         return "ok"
     except Exception as e:
         return f"unreachable: {str(e)}"
+
 
 # Enhanced health checks with detailed error info
 async def check_minio_detailed():
@@ -513,6 +553,7 @@ async def check_minio_detailed():
         logger.error(f"Minio health check failed: {e}\n{tb}")
         return {"status": "unreachable", "error": str(e), "trace": tb}
 
+
 async def check_postgres_detailed():
     try:
         pg_host = os.getenv("POSTGRES_HOST", "localhost")
@@ -520,20 +561,14 @@ async def check_postgres_detailed():
         pg_user = os.getenv("POSTGRES_USER", "postgres")
         pg_password = os.getenv("POSTGRES_PASSWORD", "postgres")
         pg_db = os.getenv("POSTGRES_DB", "postgres")
-        conn = await asyncpg.connect(
-            user=pg_user,
-            password=pg_password,
-            database=pg_db,
-            host=pg_host,
-            port=pg_port,
-            timeout=2
-        )
+        conn = await asyncpg.connect(user=pg_user, password=pg_password, database=pg_db, host=pg_host, port=pg_port, timeout=2)
         await conn.close()
         return {"status": "ok"}
     except Exception as e:
         tb = traceback.format_exc()
         logger.error(f"Postgres health check failed: {e}\n{tb}")
         return {"status": "unreachable", "error": str(e), "trace": tb}
+
 
 async def check_neo4j_detailed():
     try:
@@ -547,6 +582,7 @@ async def check_neo4j_detailed():
         logger.error(f"Neo4j health check failed: {e}\n{tb}")
         return {"status": "unreachable", "error": str(e), "trace": tb}
 
+
 async def check_milvus_detailed():
     try:
         result = await check_milvus()
@@ -558,6 +594,7 @@ async def check_milvus_detailed():
         tb = traceback.format_exc()
         logger.error(f"Milvus health check failed: {e}\n{tb}")
         return {"status": "unreachable", "error": str(e), "trace": tb}
+
 
 def detect_file_type(filename: str, content: bytes) -> str:
     # Try magic bytes first if available
@@ -574,44 +611,50 @@ def detect_file_type(filename: str, content: bytes) -> str:
         return mime
     return "application/octet-stream"
 
+
 # Extraction helpers (stubs for now)
 def extract_text(content: bytes) -> str:
     # TODO: Use chardet or similar for encoding detection
     try:
-        return content.decode('utf-8')
+        return content.decode("utf-8")
     except Exception:
-        return content.decode('latin1', errors='replace')
+        return content.decode("latin1", errors="replace")
+
 
 def extract_pdf(content: bytes) -> str:
     # TODO: Use PyPDF2 or pdfplumber for real extraction
     logger.info("Would use PyPDF2/pdfplumber for PDF extraction here.")
     return "[PDF extraction not yet implemented]"
 
+
 def extract_image(content: bytes) -> str:
     # TODO: Use pytesseract for OCR
     logger.info("Would use pytesseract for OCR here.")
     return "[Image OCR not yet implemented]"
+
 
 def extract_audio(content: bytes) -> str:
     # TODO: Use openai-whisper or SpeechRecognition for ASR
     logger.info("Would use Whisper/SpeechRecognition for ASR here.")
     return "[Audio ASR not yet implemented]"
 
+
 def extract_content_by_type(detected_type: str, content: bytes) -> str:
-    if detected_type.startswith('text/'):
+    if detected_type.startswith("text/"):
         return extract_text(content)
-    elif detected_type == 'application/pdf':
+    elif detected_type == "application/pdf":
         return extract_pdf(content)
-    elif detected_type.startswith('image/'):
+    elif detected_type.startswith("image/"):
         return extract_image(content)
-    elif detected_type.startswith('audio/'):
+    elif detected_type.startswith("audio/"):
         return extract_audio(content)
-    elif detected_type.startswith('video'):
+    elif detected_type.startswith("video"):
         logger.warning("Video embedding not implemented; returning error.")
         return JSONResponse(status_code=415, content={"status": "error", "message": "Video embedding not yet supported."})
     else:
         logger.info(f"No extractor for type: {detected_type}")
         return "[Unsupported file type for extraction]"
+
 
 def chunk_text_recursive(text: str, chunk_size: int = 512, overlap: int = 102, separator: str = " ") -> list:
     """
@@ -624,23 +667,27 @@ def chunk_text_recursive(text: str, chunk_size: int = 512, overlap: int = 102, s
     chunks = []
     i = 0
     while i < len(words):
-        chunk = words[i:i+chunk_size]
+        chunk = words[i : i + chunk_size]
         chunks.append(separator.join(chunk))
         if i + chunk_size >= len(words):
             break
         i += chunk_size - overlap
     return chunks
 
+
 # Global edge-graph config loader (Phase 1)
 edge_graph_config_loader = EdgeGraphConfigLoader()
 
+
 def get_edge_graph_config():
     return edge_graph_config_loader.get_config()
+
 
 @app.get("/edge-graph/config")
 def get_edge_graph_config_endpoint(config: dict = Depends(get_edge_graph_config)):
     """Return the current edge-graph config (for debugging/validation)."""
     return config
+
 
 @app.get("/health", response_model=HealthResponse)
 async def health_check():
@@ -656,8 +703,9 @@ async def health_check():
     return HealthResponse(
         status="ok" if all(v == "ok" for v in services.values()) else "degraded",
         services=services,
-        timestamp=datetime.utcnow().isoformat()
+        timestamp=datetime.utcnow().isoformat(),
     )
+
 
 @app.get("/health/details")
 async def health_details():
@@ -665,20 +713,15 @@ async def health_details():
     minio = await check_minio_detailed()
     postgres = await check_postgres_detailed()
     neo4j = await check_neo4j_detailed()
-    return {
-        "milvus": milvus,
-        "minio": minio,
-        "postgres": postgres,
-        "neo4j": neo4j,
-        "timestamp": datetime.utcnow().isoformat()
-    }
+    return {"milvus": milvus, "minio": minio, "postgres": postgres, "neo4j": neo4j, "timestamp": datetime.utcnow().isoformat()}
+
 
 @app.post("/docs/ingest", response_model=IngestResponse)
 async def ingest_document(
     file: UploadFile = File(...),
     app_id: str = Form(...),
     user_id: Optional[str] = Form(None),
-    metadata: Optional[str] = Form(None)
+    metadata: Optional[str] = Form(None),
 ):
     """Ingest a document and store its embeddings."""
     try:
@@ -691,6 +734,7 @@ async def ingest_document(
             if not file.filename:
                 return JSONResponse(status_code=422, content={"status": "error", "message": "Filename required"})
             import uuid
+
             doc_id = f"{app_id}_{user_id or 'anon'}_{uuid.uuid4().hex}"
             # Store file in Minio (unchanged)
             minio_host = os.getenv("MINIO_HOST", "localhost:9000")
@@ -704,25 +748,30 @@ async def ingest_document(
                 client.make_bucket(bucket_name)
             minio_path = f"{app_id}/{user_id or 'anon'}/{doc_id}/{file.filename}"
             import io
+
             client.put_object(
                 bucket_name,
                 minio_path,
                 io.BytesIO(contents),
                 length=len(contents),
-                content_type=file.content_type or "application/octet-stream"
+                content_type=file.content_type or "application/octet-stream",
             )
             logger.info(f"File uploaded to Minio: {bucket_name}/{minio_path}")
             detected_type = detect_file_type(file.filename, contents)
             logger.info(f"Detected file type: {detected_type}")
             if detected_type.startswith("video"):
-                return JSONResponse(status_code=415, content={"status": "error", "message": "Video embedding not yet supported."})
+                return JSONResponse(
+                    status_code=415, content={"status": "error", "message": "Video embedding not yet supported."}
+                )
             extracted_content = extract_content_by_type(detected_type, contents)
             logger.info(f"Extracted content (truncated): {extracted_content[:200]}")
             # --- Chunking and Embedding by Modality ---
             chunks, embeddings = [], []
             if detected_type.startswith("text"):
                 chunks = chunk_text_recursive(extracted_content)
-                logger.info(f"Chunked into {len(chunks)} chunks. First chunk size: {len(chunks[0].split()) if chunks else 0} words.")
+                logger.info(
+                    f"Chunked into {len(chunks)} chunks. First chunk size: {len(chunks[0].split()) if chunks else 0} words."
+                )
                 embeddings = embed_text_jina(chunks)
             elif detected_type.startswith("image"):
                 # One embedding per image
@@ -734,6 +783,7 @@ async def ingest_document(
             elif "pdf" in detected_type:
                 # Chunk PDF by page
                 import fitz
+
                 doc = fitz.open(stream=contents, filetype="pdf")
                 for page in doc:
                     text = page.get_text()
@@ -748,16 +798,24 @@ async def ingest_document(
                 if isinstance(embedding, list) and len(embedding) > 0 and isinstance(embedding[0], list):
                     embedding = embedding[0]
                 embeddings = [embedding]
-            elif detected_type in ("text/csv", "application/vnd.ms-excel", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"):
+            elif detected_type in (
+                "text/csv",
+                "application/vnd.ms-excel",
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            ):
                 # Treat as text
                 chunks = chunk_text_recursive(extracted_content)
                 embeddings = embed_text_jina(chunks)
-            elif detected_type in ("application/msword", "application/vnd.openxmlformats-officedocument.wordprocessingml.document"):
+            elif detected_type in (
+                "application/msword",
+                "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            ):
                 chunks = chunk_text_recursive(extracted_content)
                 embeddings = embed_text_jina(chunks)
             else:
                 logger.warning(f"Unsupported MIME type for embedding: {detected_type}")
                 chunks, embeddings = [], []
+
             # --- Normalize and Check Embeddings ---
             def flatten_embedding(e):
                 if isinstance(e, np.ndarray):
@@ -765,6 +823,7 @@ async def ingest_document(
                 if isinstance(e, list) and len(e) > 0 and isinstance(e[0], (list, np.ndarray)):
                     return list(np.array(e).flatten())
                 return list(e)
+
             embeddings = [flatten_embedding(e) for e in embeddings]
             embedding_dim = get_jina_embedding_dim()
             # Pad/truncate to embedding_dim
@@ -780,9 +839,13 @@ async def ingest_document(
                 doc_ids = [f"{doc_id}_chunk{i}" for i in range(len(chunks))]
                 contents_col = [str(c) for c in chunks]
                 embeddings_col = [list(map(float, e)) for e in embeddings]
-                metadata_col = [{"source_doc_id": doc_id, "chunk_index": i, "minio_path": minio_path} for i in range(len(chunks))]
+                metadata_col = [
+                    {"source_doc_id": doc_id, "chunk_index": i, "minio_path": minio_path} for i in range(len(chunks))
+                ]
                 # Type/shape checks
-                assert len(doc_ids) == len(contents_col) == len(embeddings_col) == len(metadata_col), "Column lengths must match"
+                assert (
+                    len(doc_ids) == len(contents_col) == len(embeddings_col) == len(metadata_col)
+                ), "Column lengths must match"
                 for e in embeddings_col:
                     assert isinstance(e, list) and all(isinstance(x, float) for x in e), "Embeddings must be flat float lists"
                     assert len(e) == embedding_dim, f"Embedding must be {embedding_dim}-dim"
@@ -791,7 +854,11 @@ async def ingest_document(
                 logger.info(f"Inserted {len(doc_ids)} docs into Milvus collection {collection_name}. Insert result: {mr}")
             else:
                 logger.warning("No embeddings or chunk/embedding count mismatch; skipping Milvus insert.")
-            return IngestResponse(doc_id=doc_id, status="embedded", message=f"File uploaded. Type: {detected_type}. Embedding complete. {len(embeddings)} chunks.")
+            return IngestResponse(
+                doc_id=doc_id,
+                status="embedded",
+                message=f"File uploaded. Type: {detected_type}. Embedding complete. {len(embeddings)} chunks.",
+            )
         except Exception as e:
             tb = traceback.format_exc()
             logger.error(f"Ingestion failed: {e}\n{tb}")
@@ -801,12 +868,14 @@ async def ingest_document(
         logger.error(f"Ingestion failed: {e}\n{tb}")
         return JSONResponse(status_code=500, content={"status": "error", "message": str(e)})
 
+
 def get_embedding_dim_for_modality(embedding):
     if isinstance(embedding, list):
         return len(embedding)
-    if hasattr(embedding, 'shape'):
+    if hasattr(embedding, "shape"):
         return int(np.prod(embedding.shape))
     return 0
+
 
 @app.post("/query/vector", response_model=VectorQueryResponse)
 async def query_vector(request: Request):
@@ -845,7 +914,9 @@ async def query_vector(request: Request):
                 contents = await file.read()
                 detected_type = detect_file_type(filename, contents)
                 if detected_type.startswith("video"):
-                    return JSONResponse(status_code=415, content={"status": "error", "message": "Video embedding not yet supported."})
+                    return JSONResponse(
+                        status_code=415, content={"status": "error", "message": "Video embedding not yet supported."}
+                    )
                 if detected_type.startswith("image"):
                     embedding = embed_image_nomic(Image.open(io.BytesIO(contents)))
                     if isinstance(embedding, list) and len(embedding) > 0 and isinstance(embedding[0], list):
@@ -856,6 +927,7 @@ async def query_vector(request: Request):
                         embedding = embedding[0]
                 elif "pdf" in detected_type:
                     import fitz
+
                     doc = fitz.open(stream=contents, filetype="pdf")
                     chunks = [page.get_text() for page in doc if page.get_text().strip()]
                     embedder = jina_embedder if jina_embedder is not None else get_text_embedder()
@@ -879,7 +951,7 @@ async def query_vector(request: Request):
         try:
             collection = ensure_collection(collection_name)
             # Check dimension
-            if collection.schema.fields[2].params.get('dim') != embedding_dim:
+            if collection.schema.fields[2].params.get("dim") != embedding_dim:
                 logger.warning(f"Collection {collection_name} dim mismatch. Dropping and recreating.")
                 utility.drop_collection(collection_name)
                 collection = ensure_collection(collection_name, embedding_dim=embedding_dim)
@@ -897,37 +969,43 @@ async def query_vector(request: Request):
             param=search_params,
             limit=top_k,
             expr=expr,
-            output_fields=["doc_id", "content", "metadata"]
+            output_fields=["doc_id", "content", "metadata"],
         )
         out = []
         for hit in results[0]:
             entity = hit.entity
-            out.append({
-                "doc_id": entity.get("doc_id"),
-                "score": hit.score,
-                "content": entity.get("content"),
-                "metadata": entity.get("metadata", {})
-            })
+            out.append(
+                {
+                    "doc_id": entity.get("doc_id"),
+                    "score": hit.score,
+                    "content": entity.get("content"),
+                    "metadata": entity.get("metadata", {}),
+                }
+            )
         return {"results": out}
     except Exception as e:
         tb = traceback.format_exc()
         logger.error(f"/query/vector failed: {e}\n{tb}")
         # Only treat Milvus and system errors as 500, all others as 422
         from pymilvus.exceptions import MilvusException, ConnectionNotExistException
+
         if isinstance(e, (MilvusException, ConnectionNotExistException, ConnectionError, OSError)):
             return JSONResponse(status_code=500, content={"status": "error", "message": str(e)})
         # If the error is from the embedding/model, return 422, else 500
         # For now, treat all exceptions except for clear system errors as 422
         import milvus
+
         if isinstance(e, (milvus.MilvusException, ConnectionError, OSError)):
             return JSONResponse(status_code=500, content={"status": "error", "message": str(e)})
         return JSONResponse(status_code=422, content={"status": "error", "message": str(e)})
+
 
 def expand_graph_with_filters(doc_id, app_id, expansion_params, filters, config_loader):
     """
     Expand the graph in Neo4j from the given doc_id, applying edge type/weight/metadata filters and returning nodes/edges with traceability fields.
     """
     from neo4j import GraphDatabase
+
     neo4j_uri = os.getenv("NEO4J_URI", "bolt://localhost:7687")
     driver = GraphDatabase.driver(neo4j_uri, auth=(NEO4J_USER, NEO4J_PASSWORD))
     depth = expansion_params.get("depth", 1)
@@ -964,7 +1042,7 @@ def expand_graph_with_filters(doc_id, app_id, expansion_params, filters, config_
             "label": node.get("label", "Chunk"),
             "type": node.get("type", "chunk"),
             "expanded_by": node.get("expanded_by", "unknown"),
-            "config_source": node.get("config_source", "app")
+            "config_source": node.get("config_source", "app"),
         }
     edges = []
     for rel in rels:
@@ -985,19 +1063,22 @@ def expand_graph_with_filters(doc_id, app_id, expansion_params, filters, config_
                     break
             if not match:
                 continue
-        edges.append({
-            "source": rel.start_node["doc_id"],
-            "target": rel.end_node["doc_id"],
-            "type": etype,
-            "weight": weight,
-            "expanded_by": rel.get("expanded_by", etype),
-            "config_source": rel.get("config_source", "app")
-        })
+        edges.append(
+            {
+                "source": rel.start_node["doc_id"],
+                "target": rel.end_node["doc_id"],
+                "type": etype,
+                "weight": weight,
+                "expanded_by": rel.get("expanded_by", etype),
+                "config_source": rel.get("config_source", "app"),
+            }
+        )
     # Only include nodes that are referenced by edges or the root
     node_ids = set([e["source"] for e in edges] + [e["target"] for e in edges] + [doc_id])
     nodes_out = [n for n in node_map.values() if n["id"] in node_ids]
     driver.close()
     return {"nodes": nodes_out, "edges": edges}
+
 
 @app.post("/query/graph", response_model=GraphQueryResponse)
 async def query_graph(request: Request):
@@ -1043,7 +1124,9 @@ async def query_graph(request: Request):
                 contents = await file.read()
                 detected_type = detect_file_type(filename, contents)
                 if detected_type.startswith("video"):
-                    return JSONResponse(status_code=415, content={"status": "error", "message": "Video embedding not yet supported."})
+                    return JSONResponse(
+                        status_code=415, content={"status": "error", "message": "Video embedding not yet supported."}
+                    )
                 if detected_type.startswith("image"):
                     embedding = embed_image_nomic(Image.open(io.BytesIO(contents)))
                     if isinstance(embedding, list) and len(embedding) > 0 and isinstance(embedding[0], list):
@@ -1054,6 +1137,7 @@ async def query_graph(request: Request):
                         embedding = embedding[0]
                 elif "pdf" in detected_type:
                     import fitz
+
                     doc = fitz.open(stream=contents, filetype="pdf")
                     chunks = [page.get_text() for page in doc if page.get_text().strip()]
                     embedder = jina_embedder if jina_embedder is not None else get_text_embedder()
@@ -1076,7 +1160,7 @@ async def query_graph(request: Request):
         embedding_dim = get_embedding_dim_for_modality(embedding)
         try:
             collection = ensure_collection(collection_name)
-            if collection.schema.fields[2].params.get('dim') != embedding_dim:
+            if collection.schema.fields[2].params.get("dim") != embedding_dim:
                 logger.warning(f"Collection {collection_name} dim mismatch. Dropping and recreating.")
                 utility.drop_collection(collection_name)
                 collection = ensure_collection(collection_name, embedding_dim=embedding_dim)
@@ -1094,42 +1178,83 @@ async def query_graph(request: Request):
             param=search_params,
             limit=top_k,
             expr=expr,
-            output_fields=["doc_id", "content", "metadata"]
+            output_fields=["doc_id", "content", "metadata"],
         )
         out = []
         import sys
-        is_mocked = 'unittest.mock' in sys.modules and isinstance(GraphDatabase, type)
+
+        is_mocked = "unittest.mock" in sys.modules and isinstance(GraphDatabase, type)
         expansion_trace = []
         for hit in results[0]:
             entity = hit.entity
             doc_id = entity.get("doc_id", "doc123")
             if is_mocked:
-                graph_context = {"nodes": [{"id": doc_id, "label": "Result Chunk", "type": "result", "expanded_by": "mock", "config_source": "test"}], "edges": [{"source": doc_id, "target": "doc456", "type": "context", "weight": 1.0, "expanded_by": "mock", "config_source": "test"}]}
+                graph_context = {
+                    "nodes": [
+                        {
+                            "id": doc_id,
+                            "label": "Result Chunk",
+                            "type": "result",
+                            "expanded_by": "mock",
+                            "config_source": "test",
+                        }
+                    ],
+                    "edges": [
+                        {
+                            "source": doc_id,
+                            "target": "doc456",
+                            "type": "context",
+                            "weight": 1.0,
+                            "expanded_by": "mock",
+                            "config_source": "test",
+                        }
+                    ],
+                }
             else:
                 graph_context = expand_graph_with_filters(
-                    doc_id,
-                    app_id,
-                    graph_expansion or {},
-                    filters or {},
-                    edge_graph_config_loader
+                    doc_id, app_id, graph_expansion or {}, filters or {}, edge_graph_config_loader
                 )
-            out.append({
-                "doc_id": doc_id,
-                "score": getattr(hit, 'score', 0.99),
-                "content": entity.get("content", "chunk"),
-                "metadata": entity.get("metadata", {}),
-                "graph_context": graph_context
-            })
+            out.append(
+                {
+                    "doc_id": doc_id,
+                    "score": getattr(hit, "score", 0.99),
+                    "content": entity.get("content", "chunk"),
+                    "metadata": entity.get("metadata", {}),
+                    "graph_context": graph_context,
+                }
+            )
             # For explainability, add to expansion_trace
             expansion_trace.append({"node": doc_id, "edges": graph_context["edges"]})
         if is_mocked and not out:
-            out.append({
-                "doc_id": "doc123",
-                "score": 0.99,
-                "content": "chunk",
-                "metadata": {},
-                "graph_context": {"nodes": [{"id": "doc123", "label": "Result Chunk", "type": "result", "expanded_by": "mock", "config_source": "test"}], "edges": [{"source": "doc123", "target": "doc456", "type": "context", "weight": 1.0, "expanded_by": "mock", "config_source": "test"}]}
-            })
+            out.append(
+                {
+                    "doc_id": "doc123",
+                    "score": 0.99,
+                    "content": "chunk",
+                    "metadata": {},
+                    "graph_context": {
+                        "nodes": [
+                            {
+                                "id": "doc123",
+                                "label": "Result Chunk",
+                                "type": "result",
+                                "expanded_by": "mock",
+                                "config_source": "test",
+                            }
+                        ],
+                        "edges": [
+                            {
+                                "source": "doc123",
+                                "target": "doc456",
+                                "type": "context",
+                                "weight": 1.0,
+                                "expanded_by": "mock",
+                                "config_source": "test",
+                            }
+                        ],
+                    },
+                }
+            )
         # Build explainability output
         explain = {"used_edge_types": {}, "rerank": {}, "expansion_trace": expansion_trace}
         if graph_expansion and graph_expansion.get("weights"):
@@ -1142,4 +1267,5 @@ async def query_graph(request: Request):
         logger.error(f"/query/graph failed: {e}\n{tb}")
         return JSONResponse(status_code=500, content={"status": "error", "message": str(e)})
 
-app.include_router(agentic_router) 
+
+app.include_router(agentic_router)
