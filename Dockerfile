@@ -40,11 +40,9 @@ WORKDIR /app
 # Copy Poetry files
 COPY pyproject.toml poetry.lock ./
 
-# Install dependencies
-RUN poetry install --only=main --no-root && rm -rf $POETRY_CACHE_DIR
-
-# Copy the virtual environment to a known location
-RUN VENV_PATH=$(poetry env info --path) && cp -r "$VENV_PATH" /app/.venv
+# Export requirements and install with pip
+RUN poetry export -f requirements.txt --output requirements.txt --without-hashes
+RUN pip install --no-cache-dir -r requirements.txt
 
 # =============================================================================
 # RUNTIME STAGE
@@ -91,11 +89,15 @@ RUN apt-get update && apt-get install -y \
 # Set work directory
 WORKDIR /app
 
-# Copy virtual environment from builder stage
-COPY --from=builder /app/.venv /app/.venv
+# Copy the installed packages from builder stage
+COPY --from=builder /usr/local/lib/python3.11/site-packages /usr/local/lib/python3.11/site-packages
+COPY --from=builder /usr/local/bin /usr/local/bin
 
 # Copy application code
 COPY . .
+
+# Set environment variables
+ENV PYTHONPATH="/app:$PYTHONPATH"
 
 # Create necessary directories
 RUN mkdir -p /app/logs /app/tmp /opt/ai-models && \
