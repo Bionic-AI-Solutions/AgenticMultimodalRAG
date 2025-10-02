@@ -199,9 +199,9 @@ async def embed_image_nomic(image: Image.Image) -> list:
     try:
         # Convert PIL Image to bytes
         img_bytes = io.BytesIO()
-        image.save(img_bytes, format='PNG')
+        image.save(img_bytes, format="PNG")
         img_bytes = img_bytes.getvalue()
-        
+
         ai_client = await get_ai_client()
         embeddings = await ai_client.get_embeddings([img_bytes], model="nomic-image")
         return embeddings[0] if embeddings else [0.0] * 768
@@ -217,15 +217,16 @@ async def embed_pdf_nomic(images: list) -> list:
         img_bytes_list = []
         for image in images:
             img_bytes = io.BytesIO()
-            image.save(img_bytes, format='PNG')
+            image.save(img_bytes, format="PNG")
             img_bytes_list.append(img_bytes.getvalue())
-        
+
         ai_client = await get_ai_client()
         embeddings = await ai_client.get_embeddings(img_bytes_list, model="nomic-image")
-        
+
         if embeddings:
             # Average the embeddings from all pages
             import numpy as np
+
             avg_embedding = np.mean(embeddings, axis=0).tolist()
             return avg_embedding
         else:
@@ -241,7 +242,7 @@ async def embed_audio_whisper(audio_bytes: bytes) -> Optional[List[float]]:
         ai_client = await get_ai_client()
         # Transcribe audio using STT service
         text = await ai_client.transcribe_audio(audio_bytes, "mp3")
-        
+
         if text:
             # Get embeddings for the transcribed text
             embeddings = await ai_client.get_embeddings([text], model="jina")
