@@ -1,6 +1,88 @@
-# =============================================================================
+#!/usr/bin/env python3
+"""
+Kubernetes Environment Setup Script
+This script helps set up the environment configuration for the Agentic Multimodal RAG System
+to connect to the Kubernetes cluster services.
+"""
+
+import os
+import base64
+import subprocess
+import json
+from pathlib import Path
+
+def run_kubectl_command(command):
+    """Run a kubectl command and return the output."""
+    try:
+        result = subprocess.run(command, shell=True, capture_output=True, text=True)
+        if result.returncode == 0:
+            return result.stdout.strip()
+        else:
+            print(f"Error running command: {command}")
+            print(f"Error: {result.stderr}")
+            return None
+    except Exception as e:
+        print(f"Exception running command: {command}")
+        print(f"Exception: {e}")
+        return None
+
+def get_k8s_secret(namespace, secret_name, key):
+    """Get a secret value from Kubernetes."""
+    command = f"kubectl get secret {secret_name} -n {namespace} -o jsonpath='{{.data.{key}}}'"
+    encoded_value = run_kubectl_command(command)
+    if encoded_value:
+        try:
+            return base64.b64decode(encoded_value).decode('utf-8')
+        except Exception as e:
+            print(f"Error decoding secret {secret_name}.{key}: {e}")
+            return None
+    return None
+
+def get_k8s_service_info(namespace, service_name):
+    """Get service information from Kubernetes."""
+    command = f"kubectl get service {service_name} -n {namespace} -o json"
+    output = run_kubectl_command(command)
+    if output:
+        try:
+            service_info = json.loads(output)
+            return {
+                'cluster_ip': service_info['spec']['clusterIP'],
+                'ports': service_info['spec']['ports']
+            }
+        except Exception as e:
+            print(f"Error parsing service info for {service_name}: {e}")
+            return None
+    return None
+
+def generate_env_file():
+    """Generate the .env file with current Kubernetes cluster information."""
+    
+    print("🔍 Discovering Kubernetes services...")
+    
+    # Get service information
+    services = {
+        'milvus': get_k8s_service_info('milvus', 'milvus'),
+        'minio': get_k8s_service_info('minio', 'minio'),
+        'postgres': get_k8s_service_info('pg', 'pg-rw'),
+        'neo4j': get_k8s_service_info('neo4j', 'neo4j'),
+        'redis': get_k8s_service_info('redis-new', 'redis-simple')
+    }
+    
+    # Get secrets
+    secrets = {
+        'minio_access_key': get_k8s_secret('milvus', 'milvus-minio-secret', 'access-key'),
+        'minio_secret_key': get_k8s_secret('milvus', 'milvus-minio-secret', 'secret-key'),
+        'neo4j_password': get_k8s_secret('neo4j', 'neo4j', 'password'),
+        'postgres_password': get_k8s_secret('pg', 'pg-credentials', 'password'),
+        'redis_password': get_k8s_secret('redis-new', 'redis-secrets', 'password')
+    }
+    
+    # Generate environment file content
+    env_content = f"""# =============================================================================
 # AGENTIC MULTIMODAL RAG SYSTEM - KUBERNETES ENVIRONMENT CONFIGURATION
 # =============================================================================
+# Generated automatically from Kubernetes cluster
+# Generated on: {subprocess.run('date', shell=True, capture_output=True, text=True).stdout.strip()}
 
 # =============================================================================
 # APPLICATION CONFIGURATION
@@ -24,8 +106,8 @@ MILVUS_PORT=19530
 # =============================================================================
 MINIO_HOST=minio.minio.svc.cluster.local
 MINIO_PORT=80
-MINIO_ACCESS_KEY=x77at4PB02HDuMNXNwr2
-MINIO_SECRET_KEY=LY0MkJ1Vawto8K8X4ICqlJ3Drm5I5AzezkWPLztE
+MINIO_ACCESS_KEY={secrets.get('minio_access_key', 'x77at4PB02HDuMNXNwr2')}
+MINIO_SECRET_KEY={secrets.get('minio_secret_key', 'LY0MkJ1Vawto8K8X4ICqlJ3Drm5I5AzezkWPLztE')}
 MINIO_SECURE=false
 MINIO_BUCKET=rag-docs
 MINIO_REGION=us-east-1
@@ -36,7 +118,7 @@ MINIO_REGION=us-east-1
 POSTGRES_HOST=pg-rw.pg.svc.cluster.local
 POSTGRES_PORT=5432
 POSTGRES_USER=postgres
-POSTGRES_PASSWORD=dfnks.irfheaei;vnc.nvdfighnsnfncxvisruhn
+POSTGRES_PASSWORD={secrets.get('postgres_password', 'dfnks.irfheaei;vnc.nvdfighnsnfncxvisruhn')}
 POSTGRES_DB=postgres
 POSTGRES_SSL=false
 POSTGRES_POOL_MIN=2
@@ -44,16 +126,16 @@ POSTGRES_POOL_MAX=10
 POSTGRES_CONNECTION_TIMEOUT=60000
 
 # Database URL (alternative format)
-DATABASE_URL=postgresql://postgres:dfnks.irfheaei;vnc.nvdfighnsnfncxvisruhn@pg-rw.pg.svc.cluster.local:5432/postgres
+DATABASE_URL=postgresql://postgres:{secrets.get('postgres_password', 'dfnks.irfheaei;vnc.nvdfighnsnfncxvisruhn')}@pg-rw.pg.svc.cluster.local:5432/postgres
 
 # =============================================================================
 # REDIS CONFIGURATION
 # =============================================================================
 REDIS_HOST=redis-simple.redis-new.svc.cluster.local
 REDIS_PORT=6379
-REDIS_PASSWORD=fedfina_staging_redis_password_secure
+REDIS_PASSWORD={secrets.get('redis_password', 'fedfina_staging_redis_password_secure')}
 REDIS_DB=0
-REDIS_URL=redis://:fedfina_staging_redis_password_secure@redis-simple.redis-new.svc.cluster.local:6379/0
+REDIS_URL=redis://:{secrets.get('redis_password', 'fedfina_staging_redis_password_secure')}@redis-simple.redis-new.svc.cluster.local:6379/0
 
 # Redis Connection Pool
 REDIS_POOL_SIZE=10
@@ -64,9 +146,9 @@ REDIS_COMMAND_TIMEOUT=5000
 # NEO4J GRAPH DATABASE CONFIGURATION
 # =============================================================================
 NEO4J_URI=bolt://neo4j.neo4j.svc.cluster.local:7687
-NEO4J_AUTH=neo4j/dCqNHU1sgz99lF7h
+NEO4J_AUTH=neo4j/{secrets.get('neo4j_password', 'dCqNHU1sgz99lF7h')}
 NEO4J_USER=neo4j
-NEO4J_PASSWORD=dCqNHU1sgz99lF7h
+NEO4J_PASSWORD={secrets.get('neo4j_password', 'dCqNHU1sgz99lF7h')}
 
 # Neo4j HTTP endpoint (for browser access)
 NEO4J_HTTP_URI=http://neo4j.neo4j.svc.cluster.local:7474
@@ -200,3 +282,63 @@ SECURE_SSL_REDIRECT=false
 SECURE_HSTS_SECONDS=0
 SECURE_HSTS_INCLUDE_SUBDOMAINS=false
 SECURE_HSTS_PRELOAD=false
+"""
+    
+    # Write to .env file
+    env_file_path = Path('.env')
+    with open(env_file_path, 'w') as f:
+        f.write(env_content)
+    
+    print(f"✅ Environment file generated: {env_file_path.absolute()}")
+    
+    # Print service discovery summary
+    print("\n📋 Service Discovery Summary:")
+    print("=" * 50)
+    
+    for service_name, service_info in services.items():
+        if service_info:
+            print(f"✅ {service_name.upper()}: {service_info['cluster_ip']}")
+        else:
+            print(f"❌ {service_name.upper()}: Not found")
+    
+    print("\n🔐 Secrets Retrieved:")
+    print("=" * 50)
+    
+    for secret_name, secret_value in secrets.items():
+        if secret_value:
+            print(f"✅ {secret_name}: Retrieved")
+        else:
+            print(f"❌ {secret_name}: Not found")
+    
+    print(f"\n🚀 Next steps:")
+    print(f"1. Review the generated .env file")
+    print(f"2. Update any placeholder values (JWT secrets, API keys, etc.)")
+    print(f"3. Test connectivity using: python -m app.main")
+    print(f"4. Check health endpoints: curl http://localhost:8000/health")
+
+def main():
+    """Main function."""
+    print("🚀 Kubernetes Environment Setup for Agentic Multimodal RAG")
+    print("=" * 60)
+    
+    # Check if kubectl is available
+    kubectl_check = run_kubectl_command("kubectl version --client")
+    if not kubectl_check:
+        print("❌ kubectl not found. Please install kubectl and configure it to access your cluster.")
+        return
+    
+    print("✅ kubectl found and configured")
+    
+    # Check cluster connectivity
+    cluster_info = run_kubectl_command("kubectl cluster-info")
+    if not cluster_info:
+        print("❌ Cannot connect to Kubernetes cluster. Please check your kubeconfig.")
+        return
+    
+    print("✅ Connected to Kubernetes cluster")
+    
+    # Generate environment file
+    generate_env_file()
+
+if __name__ == "__main__":
+    main()

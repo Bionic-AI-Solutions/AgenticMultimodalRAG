@@ -1,3 +1,88 @@
+# Kubernetes Environment Configuration
+
+This document provides the complete environment configuration for the Agentic Multimodal RAG System to connect to the Kubernetes cluster services.
+
+## Overview
+
+Based on the analysis of the current implementation and the Kubernetes cluster, the following services are available and configured:
+
+## Service Discovery
+
+### 1. Milvus Vector Database
+- **Service**: `milvus.milvus.svc.cluster.local:19530`
+- **Purpose**: Vector storage for embeddings
+- **Configuration**:
+  ```bash
+  MILVUS_HOST=milvus.milvus.svc.cluster.local
+  MILVUS_PORT=19530
+  ```
+
+### 2. MinIO Object Storage
+- **Service**: `minio.minio.svc.cluster.local:80`
+- **External Access**: NodePort `30900` on cluster IPs
+- **Purpose**: File storage for uploaded documents
+- **Credentials** (from Kubernetes secrets):
+  - Access Key: `x77at4PB02HDuMNXNwr2`
+  - Secret Key: `LY0MkJ1Vawto8K8X4ICqlJ3Drm5I5AzezkWPLztE`
+- **Configuration**:
+  ```bash
+  MINIO_HOST=minio.minio.svc.cluster.local
+  MINIO_PORT=80
+  MINIO_ACCESS_KEY=x77at4PB02HDuMNXNwr2
+  MINIO_SECRET_KEY=LY0MkJ1Vawto8K8X4ICqlJ3Drm5I5AzezkWPLztE
+  MINIO_SECURE=false
+  MINIO_BUCKET=rag-docs
+  ```
+
+### 3. PostgreSQL Database
+- **Service**: `pg-rw.pg.svc.cluster.local:5432`
+- **Purpose**: Relational data storage
+- **Credentials** (from Kubernetes secrets):
+  - Username: `postgres`
+  - Password: `dfnks.irfheaei;vnc.nvdfighnsnfncxvisruhn`
+- **Configuration**:
+  ```bash
+  POSTGRES_HOST=pg-rw.pg.svc.cluster.local
+  POSTGRES_PORT=5432
+  POSTGRES_USER=postgres
+  POSTGRES_PASSWORD=dfnks.irfheaei;vnc.nvdfighnsnfncxvisruhn
+  POSTGRES_DB=postgres
+  ```
+
+### 4. Neo4j Graph Database
+- **Service**: `neo4j.neo4j.svc.cluster.local:7687` (Bolt)
+- **HTTP Service**: `neo4j.neo4j.svc.cluster.local:7474`
+- **External Access**: LoadBalancer with multiple IPs
+- **Purpose**: Graph relationships and knowledge graph storage
+- **Credentials** (from Kubernetes secrets):
+  - Username: `neo4j`
+  - Password: `dCqNHU1sgz99lF7h`
+- **Configuration**:
+  ```bash
+  NEO4J_URI=bolt://neo4j.neo4j.svc.cluster.local:7687
+  NEO4J_AUTH=neo4j/dCqNHU1sgz99lF7h
+  NEO4J_USER=neo4j
+  NEO4J_PASSWORD=dCqNHU1sgz99lF7h
+  ```
+
+### 5. Redis Cache
+- **Service**: `redis-simple.redis-new.svc.cluster.local:6379`
+- **Purpose**: Caching and session management
+- **Credentials** (from Kubernetes secrets):
+  - Password: `fedfina_staging_redis_password_secure`
+- **Configuration**:
+  ```bash
+  REDIS_HOST=redis-simple.redis-new.svc.cluster.local
+  REDIS_PORT=6379
+  REDIS_PASSWORD=fedfina_staging_redis_password_secure
+  REDIS_DB=0
+  ```
+
+## Complete Environment File
+
+Create a `.env` file with the following configuration:
+
+```bash
 # =============================================================================
 # AGENTIC MULTIMODAL RAG SYSTEM - KUBERNETES ENVIRONMENT CONFIGURATION
 # =============================================================================
@@ -200,3 +285,58 @@ SECURE_SSL_REDIRECT=false
 SECURE_HSTS_SECONDS=0
 SECURE_HSTS_INCLUDE_SUBDOMAINS=false
 SECURE_HSTS_PRELOAD=false
+```
+
+## External Access Options
+
+If you need to access services from outside the cluster, use these external endpoints:
+
+### Milvus
+- **External**: `192.168.0.204:19530`
+
+### MinIO
+- **External**: `192.168.0.204:30900` (NodePort)
+- **Console**: `192.168.0.204:32299` (NodePort)
+
+### Neo4j
+- **Bolt**: `192.168.0.20:7687` (LoadBalancer)
+- **HTTP**: `192.168.0.20:7474` (LoadBalancer)
+
+### PostgreSQL
+- **Internal Only**: Use port-forwarding for external access
+  ```bash
+  kubectl port-forward -n pg svc/pg-rw 5432:5432
+  ```
+
+### Redis
+- **Internal Only**: Use port-forwarding for external access
+  ```bash
+  kubectl port-forward -n redis-new svc/redis-simple 6379:6379
+  ```
+
+## Security Notes
+
+1. **Credentials**: All credentials are extracted from Kubernetes secrets and are production-ready
+2. **Network**: Services use internal cluster networking for security
+3. **SSL/TLS**: Configure SSL for production deployments
+4. **Access Control**: Implement proper RBAC for Kubernetes resources
+
+## Testing Connectivity
+
+You can test the connectivity using the health check endpoints:
+
+```bash
+# Test all services
+curl http://localhost:8000/health
+
+# Test detailed service status
+curl http://localhost:8000/health/details
+```
+
+## Next Steps
+
+1. Copy the environment configuration to a `.env` file
+2. Update any placeholder values (JWT secrets, API keys, etc.)
+3. Deploy the application to the Kubernetes cluster
+4. Verify connectivity using the health check endpoints
+5. Test the full RAG pipeline with sample documents
