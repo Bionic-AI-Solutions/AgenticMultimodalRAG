@@ -44,7 +44,7 @@ COPY pyproject.toml poetry.lock ./
 RUN poetry install --only=main --no-root && rm -rf $POETRY_CACHE_DIR
 
 # Copy the virtual environment to a known location
-RUN cp -r $(poetry env info --path) /app/.venv
+RUN VENV_PATH=$(poetry env info --path) && cp -r "$VENV_PATH" /app/.venv
 
 # =============================================================================
 # RUNTIME STAGE
