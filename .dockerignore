@@ -147,6 +147,6 @@ samples/
 scripts/
 !scripts/download.py
 
-# Poetry
-poetry.lock
-pyproject.toml
+# Poetry (keep these files for Docker build)
+# poetry.lock
+# pyproject.toml
