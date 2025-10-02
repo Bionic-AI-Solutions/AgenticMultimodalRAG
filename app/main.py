@@ -1,32 +1,43 @@
-from dotenv import load_dotenv
-
-load_dotenv()
-from datetime import datetime
-from fastapi import FastAPI, UploadFile, File, Form, Body, Request, Depends
-from contextlib import asynccontextmanager
-from fastapi.middleware.cors import CORSMiddleware
-from typing import Dict, Optional, Any, List, Union
-from pydantic import BaseModel
+import io
+import json
 import logging
+import mimetypes
 import os
+import tempfile
+import traceback
+from contextlib import asynccontextmanager
+from datetime import datetime
+from functools import lru_cache
+from typing import Any, Dict, List, Optional
+
+import asyncpg
+import numpy as np
+import torch
+from dotenv import load_dotenv
+from fastapi import Depends, FastAPI, File, Form, Request, UploadFile
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+from minio import Minio
+from neo4j import GraphDatabase
+from PIL import Image
+from pydantic import BaseModel
 from pymilvus import (
-    connections,
-    exceptions as milvus_exceptions,
     Collection,
     CollectionSchema,
-    FieldSchema,
     DataType,
-    list_collections,
+    FieldSchema,
+    connections,
+    exceptions as milvus_exceptions,
     utility,
 )
 from pymilvus.exceptions import ConnectionNotExistException
-import asyncio
-from minio import Minio
-import asyncpg
-from neo4j import GraphDatabase
-import traceback
-from fastapi.responses import JSONResponse
-import mimetypes
+from sentence_transformers import SentenceTransformer
+from starlette.datastructures import UploadFile as StarletteUploadFile
+
+from app.api.agentic import router as agentic_router
+from app.edge_graph_config import EdgeGraphConfigLoader
+
+load_dotenv()
 
 try:
     import magic  # python-magic for magic byte detection
@@ -34,25 +45,20 @@ try:
     HAS_MAGIC = True
 except ImportError:
     HAS_MAGIC = False
-from sentence_transformers import SentenceTransformer
 
-# Nomic and Whisper imports (stubs for now)
-# from colpali_engine.models import ColQwen2_5, ColQwen2_5_Processor
-import whisper
-from PIL import Image
-import fitz  # PyMuPDF
-import io
-import torch
-import huggingface_hub
-from app.edge_graph_config import EdgeGraphConfigLoader
-import numpy as np
-from functools import lru_cache
-from app.file_hash_manager import get_stored_hash, verify_or_download
-from transformers import AutoModel, AutoProcessor
-import tempfile
-from starlette.datastructures import UploadFile as StarletteUploadFile
-import json
-from app.api.agentic import router as agentic_router
+try:
+    import fitz  # PyMuPDF
+
+    HAS_PYMUPDF = True
+except ImportError:
+    HAS_PYMUPDF = False
+
+try:
+    import whisper
+
+    HAS_WHISPER = True
+except ImportError:
+    HAS_WHISPER = False
 
 # Configure logging
 logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO"))
@@ -99,8 +105,7 @@ def get_device():
         try:
             # Try to allocate a small tensor to check if GPU has memory
             torch.cuda.empty_cache()
-            test_tensor = torch.zeros(1, device="cuda")
-            del test_tensor
+            torch.zeros(1, device="cuda")
             return "cuda"
         except RuntimeError:
             logger.warning("GPU memory full, falling back to CPU")
@@ -110,9 +115,11 @@ def get_device():
 
 @lru_cache(maxsize=1)
 def get_text_embedder():
-    """Get or create the text embedder. Always use the local JinaAI model if present. Make errors non-fatal and log clear messages."""
+    """Get or create the text embedder.
+
+    Always use the local JinaAI model if present. Make errors non-fatal and log clear messages.
+    """
     device = get_device()
-    hf_token = os.getenv("HUGGINGFACE_HUB_TOKEN")
     model_dir = os.getenv("MODEL_DIR") or os.getenv("HF_HOME") or os.getenv("TRANSFORMERS_CACHE") or "/Volumes/ssd/mac/models"
     model_name = "jinaai/jina-embeddings-v2-base-en"
     local_path = os.path.join(model_dir, model_name.replace("/", "__"))
@@ -126,14 +133,11 @@ def get_text_embedder():
         logger.info(f"[DEBUG] Directory contents: {os.listdir(local_path)}")
     if os.path.exists(local_path):
         try:
-            expected_hash = get_stored_hash(local_path)
 
             def dummy_download_func(path):
                 raise RuntimeError(f"Hash mismatch for {path}")
 
             # Try to load the model
-            from sentence_transformers import SentenceTransformer
-
             model = SentenceTransformer(local_path, device=device)
             logger.info("[DEBUG] JinaAI model loaded successfully from local path.")
             return model
@@ -240,8 +244,6 @@ def embed_pdf_nomic(images: list) -> list:
 
 def embed_audio_whisper(audio_bytes: bytes) -> Optional[List[float]]:
     """Embed audio using Whisper model with GPU memory management and fallback. Accepts bytes, writes to temp file."""
-    import os
-    import tempfile
 
     try:
         clear_gpu_memory()
@@ -284,8 +286,6 @@ def get_whisper_model():
         logger.error(f"Whisper model file missing: {safetensors_path} or {bin_path}")
         raise FileNotFoundError(f"Whisper model file missing: {safetensors_path} or {bin_path}")
     try:
-        import whisper
-
         model = whisper.load_model("base", download_root=local_path)
         return model
     except Exception as e:
@@ -303,12 +303,11 @@ async def lifespan(app: FastAPI):
     os.environ["HF_HOME"] = "/Volumes/ssd/mac/models"
     os.environ["TRANSFORMERS_CACHE"] = "/Volumes/ssd/mac/models"
     # Global edge-graph config loader (Phase 1)
-    edge_graph_config_loader = EdgeGraphConfigLoader()
+    EdgeGraphConfigLoader()
     try:
-        jina_embedder = get_text_embedder()
+        get_text_embedder()
     except Exception as e:
         logger.error(f"JinaAI embedder initialization failed: {e}")
-        jina_embedder = None
     yield
     # Shutdown
     logger.info("Shutting down RAG System...")
@@ -782,8 +781,8 @@ async def ingest_document(
                 embeddings = [embedding]
             elif "pdf" in detected_type:
                 # Chunk PDF by page
-                import fitz
-
+                if not HAS_PYMUPDF:
+                    raise RuntimeError("PyMuPDF not available for PDF processing")
                 doc = fitz.open(stream=contents, filetype="pdf")
                 for page in doc:
                     text = page.get_text()
@@ -926,7 +925,8 @@ async def query_vector(request: Request):
                     if isinstance(embedding, list) and len(embedding) > 0 and isinstance(embedding[0], list):
                         embedding = embedding[0]
                 elif "pdf" in detected_type:
-                    import fitz
+                    if not HAS_PYMUPDF:
+                        raise RuntimeError("PyMuPDF not available for PDF processing")
 
                     doc = fitz.open(stream=contents, filetype="pdf")
                     chunks = [page.get_text() for page in doc if page.get_text().strip()]
@@ -1002,7 +1002,8 @@ async def query_vector(request: Request):
 
 def expand_graph_with_filters(doc_id, app_id, expansion_params, filters, config_loader):
     """
-    Expand the graph in Neo4j from the given doc_id, applying edge type/weight/metadata filters and returning nodes/edges with traceability fields.
+    Expand the graph in Neo4j from the given doc_id, applying edge type/weight/metadata
+    filters and returning nodes/edges with traceability fields.
     """
     from neo4j import GraphDatabase
 
@@ -1023,9 +1024,9 @@ def expand_graph_with_filters(doc_id, app_id, expansion_params, filters, config_
     # Metadata filter (dict)
     metadata_filter = filters.get("metadata") if filters else None
     # Cypher query: expand from doc_id up to depth, filter by edge type/weight/metadata
-    cypher = f"""
-    MATCH (n:Chunk {{doc_id: $doc_id}})
-    CALL apoc.path.subgraphAll(n, {{maxLevel: $depth}})
+    cypher = """
+    MATCH (n:Chunk {doc_id: $doc_id})
+    CALL apoc.path.subgraphAll(n, {maxLevel: $depth})
     YIELD nodes, relationships
     RETURN nodes, relationships
     """
@@ -1136,7 +1137,8 @@ async def query_graph(request: Request):
                     if isinstance(embedding, list) and len(embedding) > 0 and isinstance(embedding[0], list):
                         embedding = embedding[0]
                 elif "pdf" in detected_type:
-                    import fitz
+                    if not HAS_PYMUPDF:
+                        raise RuntimeError("PyMuPDF not available for PDF processing")
 
                     doc = fitz.open(stream=contents, filetype="pdf")
                     chunks = [page.get_text() for page in doc if page.get_text().strip()]
