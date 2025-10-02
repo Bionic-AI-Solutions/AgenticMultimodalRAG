@@ -85,6 +85,8 @@ warn_return_any = true
 warn_unused_configs = true
 disallow_untyped_defs = false
 ignore_missing_imports = true
+explicit_package_bases = true
+namespace_packages = true
 
 [tool.bandit]
 exclude_dirs = ["tests", "test_*"]
