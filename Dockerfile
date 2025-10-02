@@ -6,7 +6,7 @@
 # =============================================================================
 # BUILD STAGE
 # =============================================================================
-FROM python:3.11-slim as builder
+FROM python:3.11-slim AS builder
 
 # Set build arguments
 ARG BUILD_DATE
@@ -46,7 +46,7 @@ RUN poetry install --only=main --no-root && rm -rf $POETRY_CACHE_DIR
 # =============================================================================
 # RUNTIME STAGE
 # =============================================================================
-FROM python:3.11-slim as runtime
+FROM python:3.11-slim AS runtime
 
 # Set build arguments
 ARG BUILD_DATE
@@ -77,7 +77,7 @@ RUN apt-get update && apt-get install -y \
     wget \
     libmagic1 \
     libmagic-dev \
-    libgl1-mesa-glx \
+        libgl1-mesa-dri \
     libglib2.0-0 \
     libsm6 \
     libxext6 \
