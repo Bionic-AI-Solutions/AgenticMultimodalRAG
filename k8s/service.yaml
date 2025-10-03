@@ -2,7 +2,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: rag-app-service
-  namespace: rag-system
+  namespace: rag
   labels:
     app.kubernetes.io/name: agentic-multimodal-rag
     app.kubernetes.io/version: "1.0.0"
@@ -27,7 +27,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: rag-app-internal
-  namespace: rag-system
+  namespace: rag
   labels:
     app.kubernetes.io/name: agentic-multimodal-rag
     app.kubernetes.io/version: "1.0.0"

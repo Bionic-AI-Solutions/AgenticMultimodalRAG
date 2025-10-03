@@ -2,7 +2,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: rag-app
-  namespace: rag-system
+  namespace: rag
   labels:
     app.kubernetes.io/name: agentic-multimodal-rag
     app.kubernetes.io/version: "1.0.0"
@@ -28,7 +28,7 @@ spec:
         fsGroup: 1000
       containers:
       - name: rag-app
-        image: IMAGE_TAG  # This will be replaced by the CI/CD pipeline
+        image: docker4zerocool/agentic-multimodal-rag:latest
         imagePullPolicy: Always
         ports:
         - containerPort: 8000

@@ -1,9 +1,9 @@
 apiVersion: v1
 kind: Namespace
 metadata:
-  name: rag-system
+  name: rag
   labels:
-    name: rag-system
+    name: rag
     app.kubernetes.io/name: agentic-multimodal-rag
     app.kubernetes.io/version: "1.0.0"
     app.kubernetes.io/component: namespace

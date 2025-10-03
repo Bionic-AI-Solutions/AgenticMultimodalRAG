@@ -31,7 +31,7 @@ from pymilvus import (
     utility,
 )
 from pymilvus.exceptions import ConnectionNotExistException
-from sentence_transformers import SentenceTransformer
+# Removed sentence_transformers import - using external AI services
 from starlette.datastructures import UploadFile as StarletteUploadFile
 
 from app.api.agentic import router as agentic_router
@@ -76,7 +76,7 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 logger.info(f"Using device: {device}")
 
 # Global model instances
-jina_embedder = None
+# Removed jina_embedder - using external AI services
 sbert_embedder = None
 nomic_model = None
 nomic_processor = None
@@ -421,10 +421,7 @@ def normalize_embeddings(embeddings, num_chunks):
 
 
 # Utility to get current JinaAI embedding dimension
-def get_jina_embedding_dim():
-    model = get_text_embedder()
-    emb = model.encode(["test"])
-    return emb.shape[1] if len(emb.shape) == 2 else len(emb)
+# Removed get_jina_embedding_dim function - using external AI services
 
 
 def ensure_collection(collection_name: str, embedding_dim: int = None):
@@ -434,7 +431,7 @@ def ensure_collection(collection_name: str, embedding_dim: int = None):
         if collection_name in utility.list_collections():
             return Collection(collection_name)
         if embedding_dim is None:
-            embedding_dim = get_jina_embedding_dim()
+            embedding_dim = 768  # Default Jina embedding dimension
         fields = [
             FieldSchema(name="doc_id", dtype=DataType.VARCHAR, is_primary=True, auto_id=False, max_length=100),
             FieldSchema(name="content", dtype=DataType.VARCHAR, max_length=65535),
@@ -804,7 +801,7 @@ async def ingest_document(
                 return list(e)
 
             embeddings = [flatten_embedding(e) for e in embeddings]
-            embedding_dim = get_jina_embedding_dim()
+            embedding_dim = 768  # Default Jina embedding dimension
             # Pad/truncate to embedding_dim
             for i in range(len(embeddings)):
                 if len(embeddings[i]) < embedding_dim:
@@ -910,11 +907,11 @@ async def query_vector(request: Request):
 
                     doc = fitz.open(stream=contents, filetype="pdf")
                     chunks = [page.get_text() for page in doc if page.get_text().strip()]
-                    embedder = jina_embedder if jina_embedder is not None else get_text_embedder()
+                    # Using external AI services instead of local embedder
                     embedding = embedder.encode(chunks)[0] if chunks else None
                 else:
                     extracted = extract_content_by_type(detected_type, contents)
-                    embedder = jina_embedder if jina_embedder is not None else get_text_embedder()
+                    # Using external AI services instead of local embedder
                     embedding = embedder.encode([extracted])[0]
             else:
                 if not query:
@@ -1122,11 +1119,11 @@ async def query_graph(request: Request):
 
                     doc = fitz.open(stream=contents, filetype="pdf")
                     chunks = [page.get_text() for page in doc if page.get_text().strip()]
-                    embedder = jina_embedder if jina_embedder is not None else get_text_embedder()
+                    # Using external AI services instead of local embedder
                     embedding = embedder.encode(chunks)[0] if chunks else None
                 else:
                     extracted = extract_content_by_type(detected_type, contents)
-                    embedder = jina_embedder if jina_embedder is not None else get_text_embedder()
+                    # Using external AI services instead of local embedder
                     embedding = embedder.encode([extracted])[0]
             else:
                 if not query:

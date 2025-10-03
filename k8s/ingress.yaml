@@ -2,7 +2,7 @@ apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
   name: rag-app-ingress
-  namespace: rag-system
+  namespace: rag
   labels:
     app.kubernetes.io/name: agentic-multimodal-rag
     app.kubernetes.io/version: "1.0.0"
