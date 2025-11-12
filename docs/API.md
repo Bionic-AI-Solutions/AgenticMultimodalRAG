@@ -97,6 +97,22 @@ This document provides a comprehensive reference for all API endpoints in the Ag
   - **Purpose:** Detailed health check with error traces
   - **Response:** JSON with detailed status and error info
 
+### 2.9 FastAPI MCP Tools
+- **GET /agent/tools/list**
+  - **Purpose:** List all available MCP tools exposed by the FastAPI MCP server
+  - **Response:** JSON with list of tool definitions (names, descriptions, parameters)
+  - **Example:**
+    ```bash
+    curl -X GET /agent/tools/list
+    ```
+  - **See Also:** [Setup.md#FastAPI-MCP-Integration](Setup.md#51-fastapi-mcp-integration-automatic-endpoint-exposure)
+
+- **MCP Server Endpoint: /mcp**
+  - **Purpose:** FastAPI MCP server endpoint that exposes all FastAPI endpoints as MCP tools
+  - **Access:** All endpoints are automatically available as tools via the MCP protocol
+  - **Tool Names:** Based on `operation_id` of each endpoint (e.g., `query_vector`, `ingest_document`, `decompose_query`)
+  - **Usage in Agentic Plans:** Use `tool: "fastapi_mcp"` with `tool_name` parameter to call internal endpoints
+
 ---
 
 ## 3. Request/Response Schemas & Examples
@@ -321,8 +337,24 @@ This document provides a comprehensive reference for all API endpoints in the Ag
 
 ## 4. Advanced Agentic Step Types: Examples
 
-### 4.1 Tool Call (MCP/External API)
-- **Description:** Call external APIs/tools (e.g., MCP, plugins, web search) as part of an agentic plan.
+### 4.1 Tool Call (FastAPI MCP/Internal Tools)
+- **Description:** Call internal FastAPI endpoints as MCP tools. All endpoints are automatically exposed as tools via FastAPI MCP.
+- **Example:**
+```json
+{
+  "plan": [
+    {"step_id": 1, "type": "tool_call", "modality": "text", "parameters": {"tool": "fastapi_mcp", "tool_name": "query_vector", "arguments": {"query": "What is GraphRAG?", "app_id": "myapp", "user_id": "user1"}}, "dependencies": [], "trace": {}},
+    {"step_id": 2, "type": "tool_call", "modality": "text", "parameters": {"tool": "fastapi_mcp", "tool_name": "query_graph", "arguments": {"query": "related documents", "app_id": "myapp", "user_id": "user1"}}, "dependencies": [1], "trace": {}}
+  ],
+  "traceability": true,
+  "app_id": "myapp",
+  "user_id": "user1"
+}
+```
+- **Best Practices:** Use outputs as inputs, handle errors, secure endpoints, use trace fields for auditability. See [usage.md](feature/agentic_rag/usage.md#MCP-Tool-Call-Usage--Best-Practices).
+
+### 4.2 Tool Call (External MCP/API)
+- **Description:** Call external APIs/tools (e.g., external MCP servers, plugins, web search) as part of an agentic plan.
 - **Example:**
 ```json
 {
@@ -335,11 +367,10 @@ This document provides a comprehensive reference for all API endpoints in the Ag
   "user_id": "user1"
 }
 ```
-- **Best Practices:** Use outputs as inputs, handle errors, secure endpoints, use trace fields for auditability. See [usage.md](feature/agentic_rag/usage.md#MCP-Tool-Call-Usage--Best-Practices).
 
 ---
 
-### 4.2 Rerank
+### 4.3 Rerank
 - **Description:** Rerank results from previous steps using a model or custom logic.
 - **Example:**
 ```json

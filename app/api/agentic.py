@@ -44,6 +44,7 @@ class FeedbackRequest(BaseModel):
     response_model=DecompositionPlan,
     tags=["Agentic"],
     summary="Decompose a user query into an agentic plan",
+    operation_id="decompose_query",
 )
 def decompose_query(request: DecomposeRequest = Body(...)):
     """
@@ -63,7 +64,7 @@ from fastapi import Request
 from fastapi.responses import JSONResponse
 
 
-@router.post("/agent/execute", tags=["Agentic"], summary="Execute an agentic plan (multi-step, multimodal, tool use)")
+@router.post("/agent/execute", tags=["Agentic"], summary="Execute an agentic plan (multi-step, multimodal, tool use)", operation_id="execute_agentic_plan")
 async def execute_agentic_plan(request: Request):
     """
     Execute a DecompositionPlan using the AgentExecutor. Returns the final result and execution trace.
@@ -86,6 +87,7 @@ async def execute_agentic_plan(request: Request):
     response_model=ResponseSynthesisResult,
     tags=["Agentic"],
     summary="Synthesize a final answer and explanation from agentic execution trace",
+    operation_id="synthesize_agentic_answer",
 )
 async def synthesize_agentic_answer(request: Request):
     """
@@ -106,6 +108,7 @@ async def synthesize_agentic_answer(request: Request):
     status_code=status.HTTP_201_CREATED,
     tags=["Agentic"],
     summary="Submit user feedback on agentic answer/explanation",
+    operation_id="submit_agentic_feedback",
 )
 async def submit_agentic_feedback(feedback: FeedbackRequest):
     """
@@ -119,3 +122,14 @@ async def submit_agentic_feedback(feedback: FeedbackRequest):
     with open(FEEDBACK_FILE, "a") as f:
         f.write(json.dumps(record) + "\n")
     return {"status": "success", "message": "Feedback recorded."}
+
+
+@router.get("/agent/tools/list", tags=["Agentic"], summary="List available MCP tools from FastAPI MCP server", operation_id="list_mcp_tools")
+async def list_mcp_tools():
+    """
+    List all available MCP tools exposed by the FastAPI MCP server.
+    These tools correspond to the FastAPI endpoints and can be used in agentic plans.
+    Returns a list of tool definitions with names, descriptions, and parameters.
+    """
+    tools = executor.list_mcp_tools()
+    return {"tools": tools, "count": len(tools)}

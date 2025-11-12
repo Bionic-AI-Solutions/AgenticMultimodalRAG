@@ -509,3 +509,134 @@ def test_agent_executor_llm_call_step():
     )
     result2 = executor.execute_plan(plan2, app_id="app1", user_id="user1")
     assert "error" in result2["final_result"]
+
+
+# --- FastAPI MCP tool_call tests ---
+def test_agent_executor_fastapi_mcp_tool_call():
+    """Test FastAPI MCP tool call functionality"""
+    plan = DecompositionPlan(
+        plan=[
+            DecompositionStep(
+                step_id=1,
+                type="tool_call",
+                modality="text",
+                parameters={
+                    "tool": "fastapi_mcp",
+                    "tool_name": "query_vector",
+                    "arguments": {
+                        "query": "test query",
+                        "app_id": "testapp",
+                        "user_id": "testuser"
+                    }
+                },
+                dependencies=[],
+                trace={},
+            )
+        ],
+        traceability=True,
+    )
+    executor = AgentExecutor(base_url="http://mockserver")
+    with patch("app.agentic.agent_executor.requests.post") as mock_post:
+        mock_post.return_value = MagicMock(
+            json=lambda: {"results": [{"doc_id": "test", "score": 0.9, "content": "test", "metadata": {}}]},
+            status_code=200,
+            raise_for_status=lambda: None
+        )
+        result = executor.execute_plan(plan, app_id="app1", user_id="user1")
+    assert "final_result" in result
+    assert "trace" in result
+    assert result["trace"][0]["type"] == "tool_call"
+    # Verify the MCP endpoint was called correctly
+    assert mock_post.called
+    call_args = mock_post.call_args
+    assert "/mcp/tools/call" in call_args[0][0] or "/tools/call" in call_args[0][0]
+    assert call_args[1]["json"]["name"] == "query_vector"
+    assert call_args[1]["json"]["arguments"]["query"] == "test query"
+
+
+def test_agent_executor_fastapi_mcp_tool_call_missing_tool_name():
+    """Test FastAPI MCP tool call with missing tool_name"""
+    plan = DecompositionPlan(
+        plan=[
+            DecompositionStep(
+                step_id=1,
+                type="tool_call",
+                modality="text",
+                parameters={
+                    "tool": "fastapi_mcp",
+                    "arguments": {"query": "test"}
+                },
+                dependencies=[],
+                trace={},
+            )
+        ],
+        traceability=True,
+    )
+    executor = AgentExecutor()
+    result = executor.execute_plan(plan, app_id="app1", user_id="user1")
+    assert "error" in result["final_result"]
+    assert "tool_name required" in result["final_result"]["error"]
+
+
+def test_agent_executor_fastapi_mcp_tool_call_error():
+    """Test FastAPI MCP tool call error handling"""
+    plan = DecompositionPlan(
+        plan=[
+            DecompositionStep(
+                step_id=1,
+                type="tool_call",
+                modality="text",
+                parameters={
+                    "tool": "fastapi_mcp",
+                    "tool_name": "nonexistent_tool",
+                    "arguments": {}
+                },
+                dependencies=[],
+                trace={},
+            )
+        ],
+        traceability=True,
+    )
+    executor = AgentExecutor(base_url="http://mockserver")
+    with patch("app.agentic.agent_executor.requests.post", side_effect=Exception("MCP error")):
+        result = executor.execute_plan(plan, app_id="app1", user_id="user1")
+    assert "error" in result["final_result"]
+    assert "FastAPI MCP tool_call failed" in result["final_result"]["error"]
+
+
+def test_agent_executor_list_mcp_tools():
+    """Test listing MCP tools"""
+    executor = AgentExecutor(base_url="http://mockserver")
+    with patch("app.agentic.agent_executor.requests.get") as mock_get:
+        mock_get.return_value = MagicMock(
+            json=lambda: {"tools": [{"name": "query_vector", "description": "Query vector search"}]},
+            status_code=200,
+            raise_for_status=lambda: None
+        )
+        tools = executor.list_mcp_tools()
+    assert len(tools) == 1
+    assert tools[0]["name"] == "query_vector"
+    assert tools[0]["description"] == "Query vector search"
+
+
+def test_agent_executor_list_mcp_tools_list_format():
+    """Test listing MCP tools with list format response"""
+    executor = AgentExecutor(base_url="http://mockserver")
+    with patch("app.agentic.agent_executor.requests.get") as mock_get:
+        mock_get.return_value = MagicMock(
+            json=lambda: [{"name": "query_vector"}, {"name": "ingest_document"}],
+            status_code=200,
+            raise_for_status=lambda: None
+        )
+        tools = executor.list_mcp_tools()
+    assert len(tools) == 2
+    assert tools[0]["name"] == "query_vector"
+    assert tools[1]["name"] == "ingest_document"
+
+
+def test_agent_executor_list_mcp_tools_error():
+    """Test listing MCP tools error handling"""
+    executor = AgentExecutor(base_url="http://mockserver")
+    with patch("app.agentic.agent_executor.requests.get", side_effect=Exception("Connection error")):
+        tools = executor.list_mcp_tools()
+    assert tools == []

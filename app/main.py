@@ -38,6 +38,14 @@ from app.api.agentic import router as agentic_router
 from app.edge_graph_config import EdgeGraphConfigLoader
 from app.ai_services import get_ai_client
 
+# FastAPI MCP integration
+try:
+    from fastapi_mcp import FastApiMCP
+    HAS_FASTAPI_MCP = True
+except ImportError:
+    HAS_FASTAPI_MCP = False
+    logger.warning("fastapi-mcp not installed. MCP tool integration will be disabled.")
+
 load_dotenv()
 
 try:
@@ -659,13 +667,13 @@ def get_edge_graph_config():
     return edge_graph_config_loader.get_config()
 
 
-@app.get("/edge-graph/config")
+@app.get("/edge-graph/config", operation_id="get_edge_graph_config")
 def get_edge_graph_config_endpoint(config: dict = Depends(get_edge_graph_config)):
     """Return the current edge-graph config (for debugging/validation)."""
     return config
 
 
-@app.get("/health", response_model=HealthResponse)
+@app.get("/health", response_model=HealthResponse, operation_id="health_check")
 async def health_check():
     services = {}
     # Milvus health check
@@ -683,7 +691,7 @@ async def health_check():
     )
 
 
-@app.get("/health/details")
+@app.get("/health/details", operation_id="health_details")
 async def health_details():
     milvus = await check_milvus_detailed()
     minio = await check_minio_detailed()
@@ -692,7 +700,7 @@ async def health_details():
     return {"milvus": milvus, "minio": minio, "postgres": postgres, "neo4j": neo4j, "timestamp": datetime.utcnow().isoformat()}
 
 
-@app.post("/docs/ingest", response_model=IngestResponse)
+@app.post("/docs/ingest", response_model=IngestResponse, operation_id="ingest_document")
 async def ingest_document(
     file: UploadFile = File(...),
     app_id: str = Form(...),
@@ -853,7 +861,7 @@ def get_embedding_dim_for_modality(embedding):
     return 0
 
 
-@app.post("/query/vector", response_model=VectorQueryResponse)
+@app.post("/query/vector", response_model=VectorQueryResponse, operation_id="query_vector")
 async def query_vector(request: Request):
     try:
         if request.headers.get("content-type", "").startswith("application/json"):
@@ -1058,7 +1066,7 @@ def expand_graph_with_filters(doc_id, app_id, expansion_params, filters, config_
     return {"nodes": nodes_out, "edges": edges}
 
 
-@app.post("/query/graph", response_model=GraphQueryResponse)
+@app.post("/query/graph", response_model=GraphQueryResponse, operation_id="query_graph")
 async def query_graph(request: Request):
     try:
         if request.headers.get("content-type", "").startswith("application/json"):
@@ -1248,3 +1256,13 @@ async def query_graph(request: Request):
 
 
 app.include_router(agentic_router)
+
+# Initialize and mount FastAPI MCP server to expose endpoints as tools
+if HAS_FASTAPI_MCP:
+    try:
+        mcp = FastApiMCP(app)
+        mcp.mount()
+        logger.info("FastAPI MCP server mounted at /mcp. All endpoints are now available as MCP tools.")
+    except Exception as e:
+        logger.error(f"Failed to mount FastAPI MCP server: {e}")
+        logger.warning("MCP tool integration disabled due to initialization error.")

@@ -1,6 +1,10 @@
 from typing import Any, Dict, List, Optional
 from .models import DecompositionPlan, DecompositionStep
 import requests
+import os
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 class AgentExecutor:
@@ -18,6 +22,7 @@ class AgentExecutor:
         self.base_url = base_url
         self.state: Dict[str, Any] = {}
         self.trace: List[Dict[str, Any]] = []
+        self.mcp_base_url = os.getenv("MCP_BASE_URL", f"{base_url}/mcp")
 
     def execute_plan(
         self, plan: DecompositionPlan, app_id: str, user_id: str, context: Optional[Dict[str, Any]] = None
@@ -109,6 +114,23 @@ class AgentExecutor:
                     return resp.json()
                 except Exception as e:
                     return {"error": f"MCP tool_call failed: {str(e)}"}
+            elif tool == "fastapi_mcp" or tool == "internal_mcp":
+                # Use internal FastAPI MCP server
+                tool_name = step.parameters.get("tool_name")
+                if not tool_name:
+                    return {"error": "tool_name required for fastapi_mcp tool_call"}
+                # Call the MCP server's call_tool endpoint
+                mcp_endpoint = f"{self.mcp_base_url}/tools/call"
+                payload = {
+                    "name": tool_name,
+                    "arguments": step.parameters.get("arguments", {})
+                }
+                try:
+                    resp = requests.post(mcp_endpoint, json=payload, timeout=30)
+                    resp.raise_for_status()
+                    return resp.json()
+                except Exception as e:
+                    return {"error": f"FastAPI MCP tool_call failed: {str(e)}"}
             # Placeholder for other tool types
             return {"tool_result": "[tool output]"}
         elif step.type == "rerank":
@@ -216,3 +238,23 @@ class AgentExecutor:
             return {"llm_call": True, "synthesized": summary}
         # Add more step types as needed
         return {"result": f"Executed {step.type}"}
+
+    def list_mcp_tools(self) -> List[Dict[str, Any]]:
+        """
+        List available MCP tools from the FastAPI MCP server.
+        Returns a list of tool definitions that can be used in agentic plans.
+        """
+        try:
+            tools_endpoint = f"{self.mcp_base_url}/tools/list"
+            resp = requests.get(tools_endpoint, timeout=10)
+            resp.raise_for_status()
+            result = resp.json()
+            # Handle both MCP protocol format and direct list
+            if isinstance(result, dict) and "tools" in result:
+                return result["tools"]
+            elif isinstance(result, list):
+                return result
+            return []
+        except Exception as e:
+            logger.warning(f"Failed to list MCP tools: {e}")
+            return []

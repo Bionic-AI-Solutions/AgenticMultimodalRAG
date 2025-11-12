@@ -109,12 +109,55 @@ The system supports two LLM backends for agentic plan decomposition:
 
 ## 5. Agentic Tool Calls & MCP Integration
 
+### 5.1 FastAPI MCP Integration (Automatic Endpoint Exposure)
+
+The system includes **FastAPI MCP** integration that automatically exposes all FastAPI endpoints as MCP tools for use by agents.
+
+- **Automatic Tool Discovery:** All FastAPI endpoints are automatically exposed as MCP tools at `/mcp` endpoint.
+- **No Additional Configuration:** The MCP server is automatically mounted when the application starts (if `fastapi-mcp` is installed).
+- **Tool Naming:** Endpoints use their `operation_id` for tool naming (e.g., `query_vector`, `ingest_document`, `decompose_query`).
+- **List Available Tools:** Use `GET /agent/tools/list` to see all available MCP tools.
+
+**To use FastAPI MCP tools in agentic plans:**
+```json
+{
+  "step_id": 1,
+  "type": "tool_call",
+  "modality": "text",
+  "parameters": {
+    "tool": "fastapi_mcp",
+    "tool_name": "query_vector",
+    "arguments": {
+      "query": "What is GraphRAG?",
+      "app_id": "myapp",
+      "user_id": "user1"
+    }
+  }
+}
+```
+
+### 5.2 External MCP Tool Calls
+
 - **MCP/tool_call steps** in agentic plans allow calling external APIs/tools (e.g., web search, plugins, custom endpoints).
 - **No model download is required** for tool selection/tool_call/MCP. These steps are executed by making HTTP requests to user-supplied endpoints.
-- **To use MCP/tool_call:**
+- **To use external MCP/tool_call:**
   - Specify the endpoint, payload, and headers in the agentic plan step (see Usage.md and API.md for examples).
   - You are responsible for providing and securing any required endpoints, credentials, or tokens for external tools.
-  - No MCP server is included in docker-compose; you must run or access your own MCP-compatible service if needed.
+
+**Example external MCP tool call:**
+```json
+{
+  "step_id": 2,
+  "type": "tool_call",
+  "modality": "text",
+  "parameters": {
+    "tool": "mcp",
+    "endpoint": "https://external-api.example.com/tool",
+    "payload": {"query": "foo"},
+    "headers": {"Authorization": "Bearer <token>"}
+  }
+}
+```
 
 ---
 
