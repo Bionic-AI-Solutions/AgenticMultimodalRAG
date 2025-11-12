@@ -22,6 +22,7 @@ data:
   MILVUS_PORT: "19530"
   
   # MinIO Configuration
+  # Note: MINIO_ACCESS_KEY and MINIO_SECRET_KEY are provided via Secret (rag-app-secrets)
   MINIO_HOST: "minio.minio.svc.cluster.local"
   MINIO_PORT: "80"
   MINIO_SECURE: "false"
@@ -29,6 +30,7 @@ data:
   MINIO_REGION: "us-east-1"
   
   # PostgreSQL Configuration
+  # Note: POSTGRES_PASSWORD is provided via Secret (rag-app-secrets)
   POSTGRES_HOST: "pg-rw.pg.svc.cluster.local"
   POSTGRES_PORT: "5432"
   POSTGRES_USER: "postgres"
@@ -39,6 +41,7 @@ data:
   POSTGRES_CONNECTION_TIMEOUT: "60000"
   
   # Redis Configuration
+  # Note: REDIS_PASSWORD is provided via Secret (rag-app-secrets)
   REDIS_HOST: "redis-simple.redis-new.svc.cluster.local"
   REDIS_PORT: "6379"
   REDIS_DB: "0"
@@ -47,6 +50,7 @@ data:
   REDIS_COMMAND_TIMEOUT: "5000"
   
   # Neo4j Configuration
+  # Note: NEO4J_PASSWORD and NEO4J_AUTH are provided via Secret (rag-app-secrets)
   NEO4J_URI: "bolt://neo4j.neo4j.svc.cluster.local:7687"
   NEO4J_USER: "neo4j"
   NEO4J_HTTP_URI: "http://neo4j.neo4j.svc.cluster.local:7474"
@@ -141,3 +145,15 @@ data:
   # Kubernetes
   K8S_NAMESPACE: "rag"
   K8S_SERVICE_NAME: "rag-app-service"
+  
+  # FastAPI MCP Configuration
+  MCP_BASE_URL: "http://rag-app-internal.rag.svc.cluster.local:8000/mcp"
+  
+  # LLM Backend Configuration
+  LLM_BACKEND: "local"
+  OLLAMA_HOST: "192.168.0.199"
+  OLLAMA_PORT: "11434"
+  OLLAMA_MODEL: "deepseek-r1:8b"
+  
+  # Feedback Configuration
+  FEEDBACK_FILE: "feedback.jsonl"
