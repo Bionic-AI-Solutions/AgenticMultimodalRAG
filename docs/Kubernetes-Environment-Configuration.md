@@ -172,7 +172,7 @@ DATABASE_URL=postgresql://postgres:dfnks.irfheaei;vnc.nvdfighnsnfncxvisruhn@pg-h
 # =============================================================================
 # REDIS CONFIGURATION
 # =============================================================================
-REDIS_HOST=redis-simple.redis-new.svc.cluster.local
+REDIS_HOST=redis-cluster-headless.redis.svc.cluster.local
 REDIS_PORT=6379
 REDIS_PASSWORD=fedfina_staging_redis_password_secure
 REDIS_DB=0
