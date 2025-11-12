@@ -51,8 +51,8 @@ Based on the analysis of the current implementation and the Kubernetes cluster, 
   ```
 
 ### 4. Neo4j Graph Database
-- **Service**: `neo4j.neo4j.svc.cluster.local:7687` (Bolt)
-- **HTTP Service**: `neo4j.neo4j.svc.cluster.local:7474`
+- **Service**: `neo4j-clusterip.neo4j.svc.cluster.local:7687` (Bolt)
+- **HTTP Service**: `neo4j-clusterip.neo4j.svc.cluster.local:7474`
 - **External Access**: LoadBalancer with multiple IPs
 - **Purpose**: Graph relationships and knowledge graph storage
 - **Credentials** (from Kubernetes secrets):
@@ -60,20 +60,20 @@ Based on the analysis of the current implementation and the Kubernetes cluster, 
   - Password: `dCqNHU1sgz99lF7h`
 - **Configuration**:
   ```bash
-  NEO4J_URI=bolt://neo4j.neo4j.svc.cluster.local:7687
+  NEO4J_URI=bolt://neo4j-clusterip.neo4j.svc.cluster.local:7687
   NEO4J_AUTH=neo4j/dCqNHU1sgz99lF7h
   NEO4J_USER=neo4j
   NEO4J_PASSWORD=dCqNHU1sgz99lF7h
   ```
 
 ### 5. Redis Cache
-- **Service**: `redis-simple.redis-new.svc.cluster.local:6379`
+- **Service**: `redis-cluster-headless.redis.svc.cluster.local:6379` (Headless service for Redis Enterprise cluster)
 - **Purpose**: Caching and session management
 - **Credentials** (from Kubernetes secrets):
   - Password: `fedfina_staging_redis_password_secure`
 - **Configuration**:
   ```bash
-  REDIS_HOST=redis-simple.redis-new.svc.cluster.local
+  REDIS_HOST=redis-cluster-headless.redis.svc.cluster.local
   REDIS_PORT=6379
   REDIS_PASSWORD=fedfina_staging_redis_password_secure
   REDIS_DB=0
@@ -176,7 +176,7 @@ REDIS_HOST=redis-simple.redis-new.svc.cluster.local
 REDIS_PORT=6379
 REDIS_PASSWORD=fedfina_staging_redis_password_secure
 REDIS_DB=0
-REDIS_URL=redis://:fedfina_staging_redis_password_secure@redis-simple.redis-new.svc.cluster.local:6379/0
+REDIS_URL=redis://:fedfina_staging_redis_password_secure@redis-cluster-headless.redis.svc.cluster.local:6379/0
 
 # Redis Connection Pool
 REDIS_POOL_SIZE=10
@@ -192,7 +192,7 @@ NEO4J_USER=neo4j
 NEO4J_PASSWORD=dCqNHU1sgz99lF7h
 
 # Neo4j HTTP endpoint (for browser access)
-NEO4J_HTTP_URI=http://neo4j.neo4j.svc.cluster.local:7474
+  NEO4J_HTTP_URI=http://neo4j-clusterip.neo4j.svc.cluster.local:7474
 
 # =============================================================================
 # AI MODELS CONFIGURATION
@@ -352,7 +352,7 @@ If you need to access services from outside the cluster, use these external endp
 ### Redis
 - **Internal Only**: Use port-forwarding for external access
   ```bash
-  kubectl port-forward -n redis-new svc/redis-simple 6379:6379
+  kubectl port-forward -n redis svc/redis-cluster-headless 6379:6379
   ```
 
 ## Security Notes

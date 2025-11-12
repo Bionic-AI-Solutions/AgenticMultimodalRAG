@@ -41,9 +41,10 @@ All services use Kubernetes internal DNS names for service discovery within the 
 - **Note**: Using HAProxy primary endpoint provides automatic failover and load balancing across PostgreSQL instances
 
 ### Redis Cache
-- **Service**: `redis-simple.redis-new.svc.cluster.local:6379`
+- **Service**: `redis-cluster-headless.redis.svc.cluster.local:6379` (Headless service for Redis Enterprise cluster)
+- **Purpose**: Redis Enterprise cluster access via headless service for direct pod-to-pod communication
 - **ConfigMap Variables**:
-  - `REDIS_HOST=redis-simple.redis-new.svc.cluster.local`
+  - `REDIS_HOST=redis-cluster-headless.redis.svc.cluster.local`
   - `REDIS_PORT=6379`
   - `REDIS_DB=0`
   - `REDIS_POOL_SIZE=10`
@@ -51,14 +52,16 @@ All services use Kubernetes internal DNS names for service discovery within the 
   - `REDIS_COMMAND_TIMEOUT=5000`
 - **Secret Variables** (from `rag-app-secrets`):
   - `REDIS_PASSWORD` (base64 encoded)
+- **Note**: Using headless service for Redis Enterprise cluster - client connects directly to cluster nodes
 
 ### Neo4j Graph Database
-- **Bolt Service**: `neo4j.neo4j.svc.cluster.local:7687`
-- **HTTP Service**: `neo4j.neo4j.svc.cluster.local:7474`
+- **Bolt Service**: `neo4j-clusterip.neo4j.svc.cluster.local:7687`
+- **HTTP Service**: `neo4j-clusterip.neo4j.svc.cluster.local:7474`
+- **Purpose**: Graph database for knowledge graph and relationship storage
 - **ConfigMap Variables**:
-  - `NEO4J_URI=bolt://neo4j.neo4j.svc.cluster.local:7687`
+  - `NEO4J_URI=bolt://neo4j-clusterip.neo4j.svc.cluster.local:7687`
   - `NEO4J_USER=neo4j`
-  - `NEO4J_HTTP_URI=http://neo4j.neo4j.svc.cluster.local:7474`
+  - `NEO4J_HTTP_URI=http://neo4j-clusterip.neo4j.svc.cluster.local:7474`
 - **Secret Variables** (from `rag-app-secrets`):
   - `NEO4J_PASSWORD` (base64 encoded)
   - `NEO4J_AUTH` (base64 encoded)

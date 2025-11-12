@@ -43,7 +43,8 @@ data:
   
   # Redis Configuration
   # Note: REDIS_PASSWORD is provided via Secret (rag-app-secrets)
-  REDIS_HOST: "redis-simple.redis-new.svc.cluster.local"
+  # Using redis-cluster-headless for Redis Enterprise cluster access (headless service for direct pod access)
+  REDIS_HOST: "redis-cluster-headless.redis.svc.cluster.local"
   REDIS_PORT: "6379"
   REDIS_DB: "0"
   REDIS_POOL_SIZE: "10"
@@ -52,9 +53,10 @@ data:
   
   # Neo4j Configuration
   # Note: NEO4J_PASSWORD and NEO4J_AUTH are provided via Secret (rag-app-secrets)
-  NEO4J_URI: "bolt://neo4j.neo4j.svc.cluster.local:7687"
+  # Using neo4j-clusterip service for internal cluster access
+  NEO4J_URI: "bolt://neo4j-clusterip.neo4j.svc.cluster.local:7687"
   NEO4J_USER: "neo4j"
-  NEO4J_HTTP_URI: "http://neo4j.neo4j.svc.cluster.local:7474"
+  NEO4J_HTTP_URI: "http://neo4j-clusterip.neo4j.svc.cluster.local:7474"
   
   # AI Infrastructure Services Configuration
   VLLM_BASE_URL: "http://192.168.0.20:8000"
