@@ -35,14 +35,15 @@ Based on the analysis of the current implementation and the Kubernetes cluster, 
   ```
 
 ### 3. PostgreSQL Database
-- **Service**: `pg-rw.pg.svc.cluster.local:5432`
-- **Purpose**: Relational data storage
+- **Service**: `pg-haproxy-primary.pg.svc.cluster.local:5432` (HAProxy LoadBalancer)
+- **Purpose**: Relational data storage with high availability via HAProxy
+- **Benefits**: Automatic failover, load balancing, and connection pooling
 - **Credentials** (from Kubernetes secrets):
   - Username: `postgres`
   - Password: `dfnks.irfheaei;vnc.nvdfighnsnfncxvisruhn`
 - **Configuration**:
   ```bash
-  POSTGRES_HOST=pg-rw.pg.svc.cluster.local
+  POSTGRES_HOST=pg-haproxy-primary.pg.svc.cluster.local
   POSTGRES_PORT=5432
   POSTGRES_USER=postgres
   POSTGRES_PASSWORD=dfnks.irfheaei;vnc.nvdfighnsnfncxvisruhn
@@ -155,7 +156,7 @@ MINIO_REGION=us-east-1
 # =============================================================================
 # POSTGRESQL DATABASE CONFIGURATION
 # =============================================================================
-POSTGRES_HOST=pg-rw.pg.svc.cluster.local
+POSTGRES_HOST=pg-haproxy-primary.pg.svc.cluster.local
 POSTGRES_PORT=5432
 POSTGRES_USER=postgres
 POSTGRES_PASSWORD=dfnks.irfheaei;vnc.nvdfighnsnfncxvisruhn
@@ -166,7 +167,7 @@ POSTGRES_POOL_MAX=10
 POSTGRES_CONNECTION_TIMEOUT=60000
 
 # Database URL (alternative format)
-DATABASE_URL=postgresql://postgres:dfnks.irfheaei;vnc.nvdfighnsnfncxvisruhn@pg-rw.pg.svc.cluster.local:5432/postgres
+DATABASE_URL=postgresql://postgres:dfnks.irfheaei;vnc.nvdfighnsnfncxvisruhn@pg-haproxy-primary.pg.svc.cluster.local:5432/postgres
 
 # =============================================================================
 # REDIS CONFIGURATION
@@ -340,9 +341,12 @@ If you need to access services from outside the cluster, use these external endp
 - **HTTP**: `192.168.0.20:7474` (LoadBalancer)
 
 ### PostgreSQL
-- **Internal Only**: Use port-forwarding for external access
+- **HAProxy Primary**: `pg-haproxy-primary.pg.svc.cluster.local:5432` (LoadBalancer)
+- **External Access**: `192.168.0.212:5432` (via LoadBalancer IP)
+- **Internal Access**: Use HAProxy service for automatic failover and load balancing
+- **Port Forwarding** (alternative):
   ```bash
-  kubectl port-forward -n pg svc/pg-rw 5432:5432
+  kubectl port-forward -n pg svc/pg-haproxy-primary 5432:5432
   ```
 
 ### Redis

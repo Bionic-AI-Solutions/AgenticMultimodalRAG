@@ -25,9 +25,10 @@ All services use Kubernetes internal DNS names for service discovery within the 
   - `MINIO_SECRET_KEY` (base64 encoded)
 
 ### PostgreSQL Database
-- **Service**: `pg-rw.pg.svc.cluster.local:5432`
+- **Service**: `pg-haproxy-primary.pg.svc.cluster.local:5432` (HAProxy LoadBalancer)
+- **Purpose**: High availability PostgreSQL access via HAProxy for automatic failover and load balancing
 - **ConfigMap Variables**:
-  - `POSTGRES_HOST=pg-rw.pg.svc.cluster.local`
+  - `POSTGRES_HOST=pg-haproxy-primary.pg.svc.cluster.local`
   - `POSTGRES_PORT=5432`
   - `POSTGRES_USER=postgres`
   - `POSTGRES_DB=postgres`
@@ -37,6 +38,7 @@ All services use Kubernetes internal DNS names for service discovery within the 
   - `POSTGRES_CONNECTION_TIMEOUT=60000`
 - **Secret Variables** (from `rag-app-secrets`):
   - `POSTGRES_PASSWORD` (base64 encoded)
+- **Note**: Using HAProxy primary endpoint provides automatic failover and load balancing across PostgreSQL instances
 
 ### Redis Cache
 - **Service**: `redis-simple.redis-new.svc.cluster.local:6379`

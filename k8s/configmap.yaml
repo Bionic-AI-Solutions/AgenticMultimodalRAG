@@ -30,8 +30,9 @@ data:
   MINIO_REGION: "us-east-1"
   
   # PostgreSQL Configuration
+  # Using HAProxy primary endpoint for high availability and load balancing
   # Note: POSTGRES_PASSWORD is provided via Secret (rag-app-secrets)
-  POSTGRES_HOST: "pg-rw.pg.svc.cluster.local"
+  POSTGRES_HOST: "pg-haproxy-primary.pg.svc.cluster.local"
   POSTGRES_PORT: "5432"
   POSTGRES_USER: "postgres"
   POSTGRES_DB: "postgres"
