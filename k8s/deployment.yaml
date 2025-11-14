@@ -21,6 +21,8 @@ spec:
         app.kubernetes.io/component: app
     spec:
       serviceAccountName: rag-app-sa
+      imagePullSecrets:
+      - name: harbor-registry-secret
       securityContext:
         runAsNonRoot: true
         runAsUser: 1000
@@ -28,7 +30,7 @@ spec:
         fsGroup: 1000
       containers:
       - name: rag-app
-        image: docker4zerocool/agentic-multimodal-rag:latest
+        image: harbor.bionicaisolutions.com/rag/agentic-multimodal-rag:facade-v1
         imagePullPolicy: Always
         ports:
         - containerPort: 8000
