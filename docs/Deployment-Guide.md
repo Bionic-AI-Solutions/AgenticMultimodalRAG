@@ -7,8 +7,8 @@ This guide provides comprehensive instructions for deploying the Agentic Multimo
 ### Prerequisites
 
 1. **GitHub Repository** with the following secrets configured:
-   - `DOCKER_USERNAME`: Your Docker Hub username
-   - `DOCKER_TOKEN`: Your Docker Hub access token
+   - `REGISTRY_USERNAME`: Your registry username
+   - `REGISTRY_TOKEN`: Your registry access token
 
 2. **Kubernetes Cluster** with the following services available:
    - Milvus (Vector Database)
@@ -17,7 +17,7 @@ This guide provides comprehensive instructions for deploying the Agentic Multimo
    - Neo4j (Graph Database)
    - Redis (Cache)
 
-3. **Docker Hub Account** for image storage
+3. **Registry Access** to `registry.bionicaisolutions.com` for image storage
 
 4. **Cluster Access** via one of:
    - Rancher UI (recommended for internet-accessible clusters)
@@ -30,7 +30,7 @@ The system includes a CI/CD pipeline that automatically:
 
 1. **Runs Tests**: Unit tests, linting, security scanning
 2. **Builds Docker Image**: Multi-architecture builds (AMD64, ARM64)
-3. **Pushes to Docker Hub**: Tagged with version and latest
+3. **Pushes to Registry**: Tagged with version and latest to `registry.bionicaisolutions.com/rag/agentic-multimodal-rag`
 4. **Provides Deployment Instructions**: Next steps for manual deployment
 
 #### Triggering Build
@@ -44,7 +44,7 @@ git tag v1.0.0
 git push origin v1.0.0
 ```
 
-**Note**: The GitHub Actions workflow will build and push Docker images to Docker Hub, but will not automatically deploy to your K3s cluster since it's not internet-accessible. You'll need to deploy manually using one of the methods below.
+**Note**: The GitHub Actions workflow will build and push Docker images to `registry.bionicaisolutions.com`, but will not automatically deploy to your K3s cluster. You'll need to deploy manually using one of the methods below.
 
 ## 🐳 Docker Deployment
 
@@ -61,11 +61,16 @@ docker-compose -f docker-compose.prod.yml up -d
 ### Manual Docker Build
 
 ```bash
-# Build the image
-docker build -t your-username/agentic-multimodal-rag:latest .
+# Build and push using the build script (recommended)
+./scripts/build-and-push.sh latest
 
-# Run the container
-docker run -p 8000:8000 --env-file .env your-username/agentic-multimodal-rag:latest
+# Or manually build and push
+docker build -t registry.bionicaisolutions.com/rag/agentic-multimodal-rag:latest .
+docker login registry.bionicaisolutions.com
+docker push registry.bionicaisolutions.com/rag/agentic-multimodal-rag:latest
+
+# Run the container locally
+docker run -p 8000:8000 --env-file .env registry.bionicaisolutions.com/rag/agentic-multimodal-rag:latest
 ```
 
 ## ☸️ Kubernetes Deployment

@@ -14,18 +14,19 @@ BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
 # Configuration
-NAMESPACE="rag-system"
+NAMESPACE="rag"
 APP_NAME="agentic-multimodal-rag"
 IMAGE_TAG="${1:-latest}"
-DOCKER_USERNAME="${DOCKER_USERNAME:-bionic-ai-solutions}"
+REGISTRY="${REGISTRY:-registry.bionicaisolutions.com}"
+IMAGE_NAME="${REGISTRY}/rag/${APP_NAME}:${IMAGE_TAG}"
 RANCHER_URL="${RANCHER_URL:-}"
 RANCHER_TOKEN="${RANCHER_TOKEN:-}"
 
 echo -e "${BLUE}🚀 Rancher Deployment for Agentic Multimodal RAG System${NC}"
 echo -e "${BLUE}=====================================================${NC}"
 echo -e "Namespace: ${YELLOW}$NAMESPACE${NC}"
-echo -e "Image Tag: ${YELLOW}$IMAGE_TAG${NC}"
-echo -e "Docker Username: ${YELLOW}$DOCKER_USERNAME${NC}"
+echo -e "Image: ${YELLOW}$IMAGE_NAME${NC}"
+echo -e "Registry: ${YELLOW}$REGISTRY${NC}"
 echo -e "Rancher URL: ${YELLOW}${RANCHER_URL:-'Not set'}"${NC}
 echo ""
 
@@ -70,8 +71,8 @@ prepare_manifests() {
     # Copy manifests to temp directory
     cp k8s/*.yaml "$TEMP_DIR/"
     
-    # Update image tag in deployment
-    sed -i.bak "s|IMAGE_TAG|$DOCKER_USERNAME/$APP_NAME:$IMAGE_TAG|g" "$TEMP_DIR/deployment.yaml"
+    # Update image in deployment
+    sed -i.bak "s|registry.bionicaisolutions.com/rag/agentic-multimodal-rag:.*|$IMAGE_NAME|g" "$TEMP_DIR/deployment.yaml"
     
     echo -e "${GREEN}✅ Manifests prepared${NC}"
     echo "$TEMP_DIR"
@@ -231,14 +232,14 @@ show_help() {
     echo -e "  help     Show this help message"
     echo ""
     echo -e "${YELLOW}Environment Variables:${NC}"
-    echo -e "  DOCKER_USERNAME  Docker Hub username (default: bionic-ai-solutions)"
-    echo -e "  RANCHER_URL      Rancher server URL (optional)"
-    echo -e "  RANCHER_TOKEN    Rancher API token (optional)"
+    echo -e "  REGISTRY        Registry URL (default: registry.bionicaisolutions.com)"
+    echo -e "  RANCHER_URL     Rancher server URL (optional)"
+    echo -e "  RANCHER_TOKEN   Rancher API token (optional)"
     echo ""
     echo -e "${YELLOW}Examples:${NC}"
     echo -e "  $0 deploy latest"
     echo -e "  $0 deploy v1.0.0"
-    echo -e "  DOCKER_USERNAME=myuser $0 deploy latest"
+    echo -e "  REGISTRY=registry.bionicaisolutions.com $0 deploy latest"
     echo -e "  RANCHER_URL=https://rancher.example.com $0 deploy"
     echo ""
 }

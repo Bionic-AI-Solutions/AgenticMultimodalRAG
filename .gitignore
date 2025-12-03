@@ -5,6 +5,7 @@ __pycache__/
 
 # Models directory
 models/
+.devcontainer/ai-models/
 
 # Environment files
 .env

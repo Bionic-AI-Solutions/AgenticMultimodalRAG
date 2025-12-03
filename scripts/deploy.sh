@@ -14,16 +14,17 @@ BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
 # Configuration
-NAMESPACE="rag-system"
+NAMESPACE="rag"
 APP_NAME="agentic-multimodal-rag"
 IMAGE_TAG="${1:-latest}"
-DOCKER_USERNAME="${DOCKER_USERNAME:-bionic-ai-solutions}"
+REGISTRY="${REGISTRY:-registry.bionicaisolutions.com}"
+IMAGE_NAME="${REGISTRY}/rag/${APP_NAME}:${IMAGE_TAG}"
 
 echo -e "${BLUE}🚀 Deploying Agentic Multimodal RAG System${NC}"
 echo -e "${BLUE}===========================================${NC}"
 echo -e "Namespace: ${YELLOW}$NAMESPACE${NC}"
-echo -e "Image Tag: ${YELLOW}$IMAGE_TAG${NC}"
-echo -e "Docker Username: ${YELLOW}$DOCKER_USERNAME${NC}"
+echo -e "Image: ${YELLOW}$IMAGE_NAME${NC}"
+echo -e "Registry: ${YELLOW}$REGISTRY${NC}"
 echo ""
 
 # Function to check if kubectl is available
@@ -66,8 +67,8 @@ apply_manifests() {
     kubectl apply -f k8s/configmap.yaml
     kubectl apply -f k8s/secret.yaml
     
-    # Update image tag in deployment
-    sed "s|IMAGE_TAG|$DOCKER_USERNAME/$APP_NAME:$IMAGE_TAG|g" k8s/deployment.yaml | kubectl apply -f -
+    # Update image in deployment
+    sed "s|registry.bionicaisolutions.com/rag/agentic-multimodal-rag:.*|$IMAGE_NAME|g" k8s/deployment.yaml | kubectl apply -f -
     
     kubectl apply -f k8s/service.yaml
     kubectl apply -f k8s/ingress.yaml
