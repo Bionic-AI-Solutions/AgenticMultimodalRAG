@@ -6,7 +6,7 @@ This guide explains how to deploy the Agentic Multimodal RAG System to your Kube
 
 1. **Kubernetes Access**: You need cluster-admin or namespace admin permissions for the `rag` namespace
 2. **kubectl**: Kubernetes CLI tool configured and connected to your cluster
-3. **Docker Image**: The application image `docker4zerocool/agentic-multimodal-rag:latest` should be available
+3. **Docker Image**: The application image `registry.bionicaisolutions.com/rag/agentic-multimodal-rag:latest` should be available
 
 ## Quick Deployment
 
@@ -173,7 +173,7 @@ kubectl scale deployment rag-app -n rag --replicas=1
 
 ```bash
 # Update image
-kubectl set image deployment/rag-app rag-app=docker4zerocool/agentic-multimodal-rag:new-tag -n rag
+kubectl set image deployment/rag-app rag-app=registry.bionicaisolutions.com/rag/agentic-multimodal-rag:new-tag -n rag
 
 # Restart deployment
 kubectl rollout restart deployment/rag-app -n rag
@@ -238,11 +238,17 @@ kubectl rollout restart deployment/rag-app -n rag
 
 The application connects to these services (configured in ConfigMap):
 
+- **PostgreSQL**: `pg-ceph-rw.pg.svc.cluster.local:5432` (read-write access)
+- **MinIO**: `minio-tenant-hl.minio.svc.cluster.local:9000` (headless service)
 - **Milvus**: `milvus.milvus.svc.cluster.local:19530`
-- **MinIO**: `minio.minio.svc.cluster.local:80`
-- **PostgreSQL**: `pg-haproxy-primary.pg.svc.cluster.local:5432`
-- **Redis**: `redis-cluster-headless.redis.svc.cluster.local:6379`
-- **Neo4j**: `neo4j-clusterip.neo4j.svc.cluster.local:7687`
+- **Redis**: `redis-cluster.redis.svc.cluster.local:6379` (load-balanced)
+- **Neo4j**: `neo4j-clusterip.neo4j.svc.cluster.local:7687` (Bolt) and `:7474` (HTTP)
+
+### Storage Configuration
+
+- **Models PVC**: 50Gi using `cephfs` storage class (ReadWriteMany)
+- **Logs PVC**: 10Gi using `cephfs` storage class (ReadWriteMany)
+- Both volumes use Ceph persistent storage for high performance and reliability
 
 Ensure these services are running and accessible from the `rag` namespace.
 

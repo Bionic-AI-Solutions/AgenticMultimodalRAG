@@ -13,7 +13,7 @@ spec:
   resources:
     requests:
       storage: 50Gi
-  storageClassName: nfs-client
+  storageClassName: cephfs
 ---
 apiVersion: v1
 kind: PersistentVolumeClaim
@@ -30,4 +30,4 @@ spec:
   resources:
     requests:
       storage: 10Gi
-  storageClassName: nfs-client
+  storageClassName: cephfs

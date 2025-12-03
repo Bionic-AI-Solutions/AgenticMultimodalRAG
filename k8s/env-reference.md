@@ -13,38 +13,38 @@ All services use Kubernetes internal DNS names for service discovery within the 
   - `MILVUS_PORT=19530`
 
 ### MinIO Object Storage
-- **Service**: `minio.minio.svc.cluster.local:80`
+- **Service**: `minio-tenant-hl.minio.svc.cluster.local:9000` (Headless service)
 - **ConfigMap Variables**:
-  - `MINIO_HOST=minio.minio.svc.cluster.local`
-  - `MINIO_PORT=80`
+  - `MINIO_HOST=minio-tenant-hl.minio.svc.cluster.local:9000`
   - `MINIO_SECURE=false`
   - `MINIO_BUCKET=rag-docs`
   - `MINIO_REGION=us-east-1`
 - **Secret Variables** (from `rag-app-secrets`):
-  - `MINIO_ACCESS_KEY` (base64 encoded)
+  - `MINIO_ACCESS_KEY` (base64 encoded) - `admin`
   - `MINIO_SECRET_KEY` (base64 encoded)
+- **Note**: Using headless service on port 9000 for direct pod access
 
 ### PostgreSQL Database
-- **Service**: `pg-haproxy-primary.pg.svc.cluster.local:5432` (HAProxy LoadBalancer)
-- **Purpose**: High availability PostgreSQL access via HAProxy for automatic failover and load balancing
+- **Service**: `pg-ceph-rw.pg.svc.cluster.local:5432` (Read-Write endpoint)
+- **Purpose**: Direct access to PostgreSQL cluster with read-write capabilities
 - **ConfigMap Variables**:
-  - `POSTGRES_HOST=pg-haproxy-primary.pg.svc.cluster.local`
+  - `POSTGRES_HOST=pg-ceph-rw.pg.svc.cluster.local`
   - `POSTGRES_PORT=5432`
-  - `POSTGRES_USER=postgres`
-  - `POSTGRES_DB=postgres`
+  - `POSTGRES_USER=app`
+  - `POSTGRES_DB=app`
   - `POSTGRES_SSL=false`
   - `POSTGRES_POOL_MIN=2`
   - `POSTGRES_POOL_MAX=10`
   - `POSTGRES_CONNECTION_TIMEOUT=60000`
 - **Secret Variables** (from `rag-app-secrets`):
   - `POSTGRES_PASSWORD` (base64 encoded)
-- **Note**: Using HAProxy primary endpoint provides automatic failover and load balancing across PostgreSQL instances
+- **Note**: Using pg-ceph-rw service for direct read-write access to PostgreSQL cluster
 
 ### Redis Cache
-- **Service**: `redis-cluster-headless.redis.svc.cluster.local:6379` (Headless service for Redis Enterprise cluster)
-- **Purpose**: Redis Enterprise cluster access via headless service for direct pod-to-pod communication
+- **Service**: `redis-cluster.redis.svc.cluster.local:6379` (Load-balanced service)
+- **Purpose**: Redis Enterprise cluster access via load-balanced service
 - **ConfigMap Variables**:
-  - `REDIS_HOST=redis-cluster-headless.redis.svc.cluster.local`
+  - `REDIS_HOST=redis-cluster.redis.svc.cluster.local`
   - `REDIS_PORT=6379`
   - `REDIS_DB=0`
   - `REDIS_POOL_SIZE=10`
@@ -52,7 +52,7 @@ All services use Kubernetes internal DNS names for service discovery within the 
   - `REDIS_COMMAND_TIMEOUT=5000`
 - **Secret Variables** (from `rag-app-secrets`):
   - `REDIS_PASSWORD` (base64 encoded)
-- **Note**: Using headless service for Redis Enterprise cluster - client connects directly to cluster nodes
+- **Note**: Using load-balanced service for Redis Enterprise cluster access
 
 ### Neo4j Graph Database
 - **Bolt Service**: `neo4j-clusterip.neo4j.svc.cluster.local:7687`

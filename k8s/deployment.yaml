@@ -22,100 +22,101 @@ spec:
     spec:
       serviceAccountName: rag-app-sa
       imagePullSecrets:
-      - name: harbor-registry-secret
+        - name: registry-registry-secret
       securityContext:
         runAsNonRoot: true
         runAsUser: 1000
         runAsGroup: 1000
         fsGroup: 1000
       containers:
-      - name: rag-app
-        image: harbor.bionicaisolutions.com/rag/agentic-multimodal-rag:facade-v1
-        imagePullPolicy: Always
-        ports:
-        - containerPort: 8000
-          name: http
-          protocol: TCP
-        env:
-        - name: POD_NAME
-          valueFrom:
-            fieldRef:
-              fieldPath: metadata.name
-        - name: POD_NAMESPACE
-          valueFrom:
-            fieldRef:
-              fieldPath: metadata.namespace
-        - name: POD_IP
-          valueFrom:
-            fieldRef:
-              fieldPath: status.podIP
-        envFrom:
-        - configMapRef:
-            name: rag-app-config
-        - secretRef:
-            name: rag-app-secrets
-        resources:
-          requests:
-            memory: "2Gi"
-            cpu: "1000m"
-          limits:
-            memory: "4Gi"
-            cpu: "2000m"
-        volumeMounts:
-        - name: logs
-          mountPath: /app/logs
-        - name: models
-          mountPath: /opt/ai-models
-          readOnly: true
-        - name: temp
-          mountPath: /tmp/rag-uploads
-        livenessProbe:
-          httpGet:
-            path: /health
-            port: 8000
-          initialDelaySeconds: 60
-          periodSeconds: 30
-          timeoutSeconds: 10
-          failureThreshold: 3
-        readinessProbe:
-          httpGet:
-            path: /health
-            port: 8000
-          initialDelaySeconds: 30
-          periodSeconds: 10
-          timeoutSeconds: 5
-          failureThreshold: 3
-        startupProbe:
-          httpGet:
-            path: /health
-            port: 8000
-          initialDelaySeconds: 10
-          periodSeconds: 10
-          timeoutSeconds: 5
-          failureThreshold: 30
+        - name: rag-app
+          image: registry.bionicaisolutions.com/rag/agentic-multimodal-rag:latest
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 8000
+              name: http
+              protocol: TCP
+          env:
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: POD_IP
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.podIP
+          envFrom:
+            - configMapRef:
+                name: rag-app-config
+            - secretRef:
+                name: rag-app-secrets
+          resources:
+            requests:
+              memory: "2Gi"
+              cpu: "1000m"
+            limits:
+              memory: "4Gi"
+              cpu: "2000m"
+          volumeMounts:
+            - name: logs
+              mountPath: /app/logs
+            - name: models
+              mountPath: /opt/ai-models
+              readOnly: true
+            - name: temp
+              mountPath: /tmp/rag-uploads
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 60
+            periodSeconds: 30
+            timeoutSeconds: 10
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          startupProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 30
       volumes:
-      - name: logs
-        emptyDir: {}
-      - name: models
-        persistentVolumeClaim:
-          claimName: rag-models-pvc
-      - name: temp
-        emptyDir: {}
+        - name: logs
+          persistentVolumeClaim:
+            claimName: rag-logs-pvc
+        - name: models
+          persistentVolumeClaim:
+            claimName: rag-models-pvc
+        - name: temp
+          emptyDir: {}
       nodeSelector:
         kubernetes.io/os: linux
       tolerations:
-      - key: "node-role.kubernetes.io/master"
-        operator: "Exists"
-        effect: "NoSchedule"
+        - key: "node-role.kubernetes.io/master"
+          operator: "Exists"
+          effect: "NoSchedule"
       affinity:
         podAntiAffinity:
           preferredDuringSchedulingIgnoredDuringExecution:
-          - weight: 100
-            podAffinityTerm:
-              labelSelector:
-                matchExpressions:
-                - key: app.kubernetes.io/name
-                  operator: In
-                  values:
-                  - agentic-multimodal-rag
-              topologyKey: kubernetes.io/hostname
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchExpressions:
+                    - key: app.kubernetes.io/name
+                      operator: In
+                      values:
+                        - agentic-multimodal-rag
+                topologyKey: kubernetes.io/hostname
