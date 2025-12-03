@@ -1,0 +1,103 @@
+{
+  "name": "Agentic Multimodal RAG (Alternative)",
+  "build": {
+    "dockerfile": "Dockerfile",
+    "context": "..",
+    "args": {
+      "BUILDKIT_INLINE_CACHE": "1"
+    }
+  },
+  "workspaceFolder": "/workspace",
+  
+  // Simplified features - remove docker-in-docker to avoid conflicts
+  "features": {
+    "ghcr.io/devcontainers/features/common-utils:2": {
+      "installZsh": true,
+      "installOhMyZsh": false,
+      "upgradePackages": false,
+      "username": "vscode",
+      "uid": "1000",
+      "gid": "1000"
+    }
+  },
+
+  // Configure tool-specific properties
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "ms-python.python",
+        "ms-python.vscode-pylance",
+        "ms-python.black-formatter",
+        "ms-python.isort",
+        "ms-python.flake8",
+        "charliermarsh.ruff",
+        "ms-python.debugpy",
+        "ms-toolsai.jupyter",
+        "ms-azuretools.vscode-docker",
+        "redhat.vscode-yaml",
+        "ms-vscode.vscode-json",
+        "eamodio.gitlens",
+        "github.copilot",
+        "github.copilot-chat"
+      ],
+      "settings": {
+        "python.defaultInterpreterPath": "/opt/conda/envs/test/bin/python",
+        "python.terminal.activateEnvironment": true,
+        "python.terminal.activateEnvInCurrentTerminal": true,
+        "python.linting.enabled": true,
+        "python.linting.pylintEnabled": false,
+        "python.linting.flake8Enabled": true,
+        "python.formatting.provider": "black",
+        "python.formatting.blackArgs": ["--line-length=127"],
+        "python.sortImports.args": ["--profile", "black", "--line-length=127"],
+        "editor.formatOnSave": true,
+        "editor.codeActionsOnSave": {
+          "source.organizeImports": true
+        },
+        "files.exclude": {
+          "**/__pycache__": true,
+          "**/*.pyc": true,
+          "**/.pytest_cache": true,
+          "**/.mypy_cache": true
+        },
+        "python.testing.pytestEnabled": true,
+        "python.testing.pytestArgs": [
+          "tests"
+        ],
+        "python.testing.unittestEnabled": false
+      }
+    }
+  },
+
+  "forwardPorts": [
+    8000, 5432, 7474, 7687, 9000, 9001, 19530, 6379, 2379
+  ],
+
+  "mounts": [
+    "source=/mnt/ai-models,target=/models,type=bind,consistency=cached",
+    "source=${localWorkspaceFolder}/.devcontainer/ai-models,target=/opt/ai-models,type=bind,consistency=cached",
+    "source=rag-poetry-cache,target=/home/vscode/.cache/pypoetry,type=volume",
+    "source=rag-conda-pkgs,target=/opt/conda/pkgs,type=volume"
+  ],
+
+  "runArgs": [
+    "--add-host=host.docker.internal:host-gateway"
+  ],
+
+  "containerEnv": {
+    "PYTHONUNBUFFERED": "1",
+    "PYTHONDONTWRITEBYTECODE": "1",
+    "PYTHONPATH": "/workspace",
+    "HF_HOME": "/models",
+    "TRANSFORMERS_CACHE": "/models",
+    "MODEL_DIR": "/models",
+    "ENV": "development"
+  },
+
+  "remoteUser": "vscode",
+  "postCreateCommand": "bash .devcontainer/post-create.sh",
+  "remoteEnv": {
+    "PATH": "${containerEnv:PATH}:/opt/conda/envs/test/bin"
+  }
+}
+

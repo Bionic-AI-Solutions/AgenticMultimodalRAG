@@ -1,0 +1,4 @@
+# This file is kept for reference but devcontainer.json now uses direct Dockerfile build
+# Services are started via docker-compose from the project root using the main docker-compose.yml
+# The devcontainer connects to services via host network
+

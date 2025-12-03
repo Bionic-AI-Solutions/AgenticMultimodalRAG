@@ -1,0 +1,121 @@
+{
+  "name": "Agentic Multimodal RAG",
+  "build": {
+    "dockerfile": "Dockerfile",
+    "context": ".."
+  },
+  "workspaceFolder": "/workspace",
+  
+  // Features to add to the dev container
+  // Simplified to avoid conflicts - docker-in-docker can be added later if needed
+  "features": {
+    "ghcr.io/devcontainers/features/common-utils:2": {
+      "installZsh": true,
+      "installOhMyZsh": false,
+      "upgradePackages": false,
+      "username": "vscode",
+      "uid": "1000",
+      "gid": "1000"
+    }
+  },
+
+  // Configure tool-specific properties
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "ms-python.python",
+        "ms-python.vscode-pylance",
+        "ms-python.black-formatter",
+        "ms-python.isort",
+        "ms-python.flake8",
+        "charliermarsh.ruff",
+        "ms-python.debugpy",
+        "ms-toolsai.jupyter",
+        "ms-azuretools.vscode-docker",
+        "redhat.vscode-yaml",
+        "ms-vscode.vscode-json",
+        "eamodio.gitlens",
+        "github.copilot",
+        "github.copilot-chat"
+      ],
+      "settings": {
+        "python.defaultInterpreterPath": "/opt/conda/envs/test/bin/python",
+        "python.terminal.activateEnvironment": true,
+        "python.terminal.activateEnvInCurrentTerminal": true,
+        "python.linting.enabled": true,
+        "python.linting.pylintEnabled": false,
+        "python.linting.flake8Enabled": true,
+        "python.formatting.provider": "black",
+        "python.formatting.blackArgs": ["--line-length=127"],
+        "python.sortImports.args": ["--profile", "black", "--line-length=127"],
+        "editor.formatOnSave": true,
+        "editor.codeActionsOnSave": {
+          "source.organizeImports": true
+        },
+        "files.exclude": {
+          "**/__pycache__": true,
+          "**/*.pyc": true,
+          "**/.pytest_cache": true,
+          "**/.mypy_cache": true
+        },
+        "python.testing.pytestEnabled": true,
+        "python.testing.pytestArgs": [
+          "tests"
+        ],
+        "python.testing.unittestEnabled": false
+      }
+    }
+  },
+
+  // Use 'forwardPorts' to make a list of ports inside the container available locally
+  "forwardPorts": [
+    8000,  // FastAPI
+    5432,  // PostgreSQL
+    7474,  // Neo4j HTTP
+    7687,  // Neo4j Bolt
+    9000,  // MinIO API
+    9001,  // MinIO Console
+    19530, // Milvus
+    6379,  // Redis
+    2379   // etcd
+  ],
+
+  // Mount volumes for persistence
+  // Note: workspaceFolder is automatically mounted by devcontainers, but we explicitly add it here
+  // to ensure it works correctly and changes persist on the host
+  "mounts": [
+    "source=${localWorkspaceFolder},target=/workspace,type=bind,consistency=cached",
+    "source=/mnt/ai-models,target=/models,type=bind,consistency=cached",
+    "source=${localWorkspaceFolder}/.devcontainer/ai-models,target=/opt/ai-models,type=bind,consistency=cached",
+    "source=rag-poetry-cache,target=/home/vscode/.cache/pypoetry,type=volume",
+    "source=rag-conda-pkgs,target=/opt/conda/pkgs,type=volume"
+  ],
+
+  // Connect to services (use host.docker.internal for cross-platform compatibility)
+  "runArgs": [
+    "--add-host=host.docker.internal:host-gateway"
+  ],
+
+  // Set *default* container specific settings.json values on container create
+  "containerEnv": {
+    "PYTHONUNBUFFERED": "1",
+    "PYTHONDONTWRITEBYTECODE": "1",
+    "PYTHONPATH": "/workspace",
+    "HF_HOME": "/models",
+    "TRANSFORMERS_CACHE": "/models",
+    "MODEL_DIR": "/models",
+    "ENV": "development"
+  },
+
+  // Comment out to connect as root instead. More info: https://aka.ms/vscode-remote/containers/non-root
+  "remoteUser": "vscode",
+
+  // Post-create commands
+  "postCreateCommand": "bash .devcontainer/post-create.sh",
+
+  // Comment out to run as root instead
+  "remoteEnv": {
+    "PATH": "${containerEnv:PATH}:/opt/conda/envs/test/bin"
+  }
+}
+
