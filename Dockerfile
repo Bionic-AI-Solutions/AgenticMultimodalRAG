@@ -40,7 +40,8 @@ WORKDIR /app
 # Copy Poetry files
 COPY pyproject.toml poetry.lock ./
 
-# Export requirements and install with pip
+# Update lock file and export requirements, then install with pip
+RUN poetry lock --no-update || poetry lock
 RUN poetry export -f requirements.txt --output requirements.txt --without-hashes
 RUN pip install --no-cache-dir -r requirements.txt
 

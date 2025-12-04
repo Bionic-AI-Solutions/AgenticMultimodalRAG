@@ -12,7 +12,6 @@ from typing import Any, Dict, List, Optional
 
 import asyncpg
 import numpy as np
-import torch
 from dotenv import load_dotenv
 from fastapi import Depends, FastAPI, File, Form, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
@@ -44,7 +43,6 @@ try:
     HAS_FASTAPI_MCP = True
 except ImportError:
     HAS_FASTAPI_MCP = False
-    logger.warning("fastapi-mcp not installed. MCP tool integration will be disabled.")
 
 load_dotenv()
 
@@ -70,8 +68,13 @@ except ImportError:
     HAS_WHISPER = False
 
 # Configure logging
-logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO"))
+log_level = os.getenv("LOG_LEVEL", "INFO").upper()
+logging.basicConfig(level=log_level)
 logger = logging.getLogger(__name__)
+
+# FastAPI MCP integration - log warning after logger is initialized
+if not HAS_FASTAPI_MCP:
+    logger.warning("fastapi-mcp not installed. MCP tool integration will be disabled.")
 
 # Set HuggingFace cache at the very top
 print(f"[RAG Startup] HF_HOME={os.getenv('HF_HOME')}")
@@ -79,105 +82,7 @@ print(f"[RAG Startup] TRANSFORMERS_CACHE={os.getenv('TRANSFORMERS_CACHE')}")
 os.environ["HF_HOME"] = os.getenv("HF_HOME", "/Volumes/ssd/mac/models")
 os.environ["TRANSFORMERS_CACHE"] = os.getenv("HF_HOME", "/Volumes/ssd/mac/models")
 
-# Enable GPU acceleration
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-logger.info(f"Using device: {device}")
-
-# Global model instances
-# Removed jina_embedder - using external AI services
-sbert_embedder = None
-nomic_model = None
-nomic_processor = None
-whisper_model = None
-
-# Add colpali imports for Nomic multimodal embedding
-try:
-    from colpali_engine.models import ColQwen2_5, ColQwen2_5_Processor
-except ImportError:
-    ColQwen2_5 = None
-    ColQwen2_5_Processor = None
-    import logging
-
-    logging.warning("colpali_engine not installed. Nomic multimodal embedding will not work.")
-
-
-def clear_gpu_memory():
-    """Clear GPU memory cache."""
-    if torch.cuda.is_available():
-        torch.cuda.empty_cache()
-        torch.cuda.synchronize()
-
-
-def get_device():
-    """Get the best available device with fallback to CPU if GPU is out of memory."""
-    if torch.cuda.is_available():
-        try:
-            # Try to allocate a small tensor to check if GPU has memory
-            torch.cuda.empty_cache()
-            torch.zeros(1, device="cuda")
-            return "cuda"
-        except RuntimeError:
-            logger.warning("GPU memory full, falling back to CPU")
-            return "cpu"
-    return "cpu"
-
-
-@lru_cache(maxsize=1)
-def get_text_embedder():
-    """Get or create the text embedder.
-
-    Always use the local JinaAI model if present. Make errors non-fatal and log clear messages.
-    """
-    device = get_device()
-    model_dir = os.getenv("MODEL_DIR") or os.getenv("HF_HOME") or os.getenv("TRANSFORMERS_CACHE") or "/Volumes/ssd/mac/models"
-    model_name = "jinaai/jina-embeddings-v2-base-en"
-    local_path = os.path.join(model_dir, model_name.replace("/", "__"))
-    logger.info(
-        f"[DEBUG] get_text_embedder: model_dir={model_dir}, local_path={local_path}, exists={os.path.exists(local_path)}"
-    )
-    logger.info(
-        f"[DEBUG] isdir={os.path.isdir(local_path)}, isfile={os.path.isfile(local_path)}, islink={os.path.islink(local_path)}"
-    )
-    if os.path.isdir(local_path):
-        logger.info(f"[DEBUG] Directory contents: {os.listdir(local_path)}")
-    if os.path.exists(local_path):
-        try:
-
-            def dummy_download_func(path):
-                raise RuntimeError(f"Hash mismatch for {path}")
-
-            # Try to load the model
-            model = SentenceTransformer(local_path, device=device)
-            logger.info("[DEBUG] JinaAI model loaded successfully from local path.")
-            return model
-        except Exception as e:
-            logger.error(f"Failed to load local JinaAI model: {e}")
-            raise RuntimeError(f"JinaAI model could not be loaded from {local_path}: {e}")
-    else:
-        logger.error(f"Local JinaAI model directory does not exist: {local_path}")
-        raise RuntimeError(f"JinaAI model directory not found: {local_path}")
-
-
-@lru_cache(maxsize=1)
-def get_nomic_model():
-    """Load the Nomic multimodal model and processor from local cache using colpali. Never connect to the internet."""
-    if ColQwen2_5 is None or ColQwen2_5_Processor is None:
-        raise ImportError("colpali_engine.models.ColQwen2_5 not available. Please install colpali.")
-    model_dir = os.getenv("HF_HOME", "/Volumes/ssd/mac/models")
-    model_name = "nomic-ai/colnomic-embed-multimodal-7b"
-    local_path = os.path.join(model_dir, model_name.replace("/", "__"))
-    safetensors_path = os.path.join(local_path, "adapter_model.safetensors")
-    if not os.path.exists(safetensors_path):
-        logger.error(f"Nomic model file missing: {safetensors_path}")
-        raise FileNotFoundError(f"Nomic model file missing: {safetensors_path}")
-    device = "cuda:0" if torch.cuda.is_available() else ("mps" if torch.backends.mps.is_available() else "cpu")
-    model = ColQwen2_5.from_pretrained(
-        local_path,
-        torch_dtype=torch.bfloat16 if torch.cuda.is_available() or torch.backends.mps.is_available() else torch.float32,
-        device_map=device,
-    ).eval()
-    processor = ColQwen2_5_Processor.from_pretrained(local_path)
-    return model, processor, device
+# All model operations now use external AI services via ai_services.py
 
 
 async def embed_text_jina(chunks: list[str]) -> Optional[List[List[float]]]:
@@ -262,23 +167,7 @@ async def embed_audio_whisper(audio_bytes: bytes) -> Optional[List[float]]:
         return [0.0] * 768
 
 
-@lru_cache(maxsize=1)
-def get_whisper_model():
-    """Load the Whisper model from local cache only. Never connect to the internet."""
-    model_dir = os.getenv("HF_HOME", "/Volumes/ssd/mac/models")
-    model_name = "openai/whisper-base"
-    local_path = os.path.join(model_dir, model_name.replace("/", "__"))
-    safetensors_path = os.path.join(local_path, "model.safetensors")
-    bin_path = os.path.join(local_path, "pytorch_model.bin")
-    if not (os.path.exists(safetensors_path) or os.path.exists(bin_path)):
-        logger.error(f"Whisper model file missing: {safetensors_path} or {bin_path}")
-        raise FileNotFoundError(f"Whisper model file missing: {safetensors_path} or {bin_path}")
-    try:
-        model = whisper.load_model("base", download_root=local_path)
-        return model
-    except Exception as e:
-        logger.error(f"Failed to load Whisper model from local cache: {e}")
-        raise
+# Whisper model loading removed - using external STT service via ai_services.py
 
 
 # Move the lifespan definition here (before app = FastAPI(...))
@@ -292,10 +181,7 @@ async def lifespan(app: FastAPI):
     os.environ["TRANSFORMERS_CACHE"] = "/Volumes/ssd/mac/models"
     # Global edge-graph config loader (Phase 1)
     EdgeGraphConfigLoader()
-    try:
-        get_text_embedder()
-    except Exception as e:
-        logger.error(f"JinaAI embedder initialization failed: {e}")
+    # All model loading now handled by external AI services
     yield
     # Shutdown
     logger.info("Shutting down RAG System...")
@@ -915,17 +801,20 @@ async def query_vector(request: Request):
 
                     doc = fitz.open(stream=contents, filetype="pdf")
                     chunks = [page.get_text() for page in doc if page.get_text().strip()]
-                    # Using external AI services instead of local embedder
-                    embedding = embedder.encode(chunks)[0] if chunks else None
+                    # Using external AI services for embeddings
+                    embeddings = await embed_text_jina(chunks) if chunks else None
+                    embedding = embeddings[0] if embeddings and len(embeddings) > 0 else None
                 else:
                     extracted = extract_content_by_type(detected_type, contents)
-                    # Using external AI services instead of local embedder
-                    embedding = embedder.encode([extracted])[0]
+                    # Using external AI services for embeddings
+                    embeddings = await embed_text_jina([extracted])
+                    embedding = embeddings[0] if embeddings and len(embeddings) > 0 else None
             else:
                 if not query:
                     return JSONResponse(status_code=422, content={"status": "error", "message": "query required"})
-                embedder = jina_embedder if jina_embedder is not None else get_text_embedder()
-                embedding = embedder.encode([query])[0]
+                # Using external AI services for embeddings
+                embeddings = await embed_text_jina([query])
+                embedding = embeddings[0] if embeddings and len(embeddings) > 0 else None
         except Exception as e:
             logger.error(f"Embedding/model error: {e}")
             return JSONResponse(status_code=422, content={"status": "error", "message": str(e)})
@@ -1127,17 +1016,20 @@ async def query_graph(request: Request):
 
                     doc = fitz.open(stream=contents, filetype="pdf")
                     chunks = [page.get_text() for page in doc if page.get_text().strip()]
-                    # Using external AI services instead of local embedder
-                    embedding = embedder.encode(chunks)[0] if chunks else None
+                    # Using external AI services for embeddings
+                    embeddings = await embed_text_jina(chunks) if chunks else None
+                    embedding = embeddings[0] if embeddings and len(embeddings) > 0 else None
                 else:
                     extracted = extract_content_by_type(detected_type, contents)
-                    # Using external AI services instead of local embedder
-                    embedding = embedder.encode([extracted])[0]
+                    # Using external AI services for embeddings
+                    embeddings = await embed_text_jina([extracted])
+                    embedding = embeddings[0] if embeddings and len(embeddings) > 0 else None
             else:
                 if not query:
                     return JSONResponse(status_code=422, content={"status": "error", "message": "query required"})
-                embedder = jina_embedder if jina_embedder is not None else get_text_embedder()
-                embedding = embedder.encode([query])[0]
+                # Using external AI services for embeddings
+                embeddings = await embed_text_jina([query])
+                embedding = embeddings[0] if embeddings and len(embeddings) > 0 else None
         except Exception as e:
             logger.error(f"Embedding/model error: {e}")
             return JSONResponse(status_code=422, content={"status": "error", "message": str(e)})

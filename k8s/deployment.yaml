@@ -8,7 +8,7 @@ metadata:
     app.kubernetes.io/version: "1.0.0"
     app.kubernetes.io/component: app
 spec:
-  replicas: 3
+  replicas: 1
   selector:
     matchLabels:
       app.kubernetes.io/name: agentic-multimodal-rag
@@ -31,7 +31,7 @@ spec:
       containers:
         - name: rag-app
           image: registry.bionicaisolutions.com/rag/agentic-multimodal-rag:latest
-          imagePullPolicy: Always
+          imagePullPolicy: Never
           ports:
             - containerPort: 8000
               name: http
@@ -75,7 +75,7 @@ spec:
               port: 8000
             initialDelaySeconds: 60
             periodSeconds: 30
-            timeoutSeconds: 10
+            timeoutSeconds: 15
             failureThreshold: 3
           readinessProbe:
             httpGet:
@@ -83,7 +83,7 @@ spec:
               port: 8000
             initialDelaySeconds: 30
             periodSeconds: 10
-            timeoutSeconds: 5
+            timeoutSeconds: 15
             failureThreshold: 3
           startupProbe:
             httpGet:
@@ -91,7 +91,7 @@ spec:
               port: 8000
             initialDelaySeconds: 10
             periodSeconds: 10
-            timeoutSeconds: 5
+            timeoutSeconds: 15
             failureThreshold: 30
       volumes:
         - name: logs
@@ -104,6 +104,7 @@ spec:
           emptyDir: {}
       nodeSelector:
         kubernetes.io/os: linux
+        kubernetes.io/hostname: gpu
       tolerations:
         - key: "node-role.kubernetes.io/master"
           operator: "Exists"
